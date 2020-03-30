@@ -1,0 +1,11 @@
+ABOUT-NLS
+config.*
+*.lock
+*.flag
+.libs/
+.deps/
+*.a
+*.o
+*.so.*
+*.la
+*.in
