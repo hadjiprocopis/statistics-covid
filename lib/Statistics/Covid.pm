@@ -855,7 +855,7 @@ solidify.
 	});
 
 
-=head1 EXAMPLE SCRIPT
+=head1 EXAMPLE SCRIPTS
 
 C<script/statistics-covid-fetch-data-and-store.pl> is
 a script which accompanies this distribution. It can be
@@ -864,19 +864,59 @@ specified configuration file.
 
 For a quick start:
 
+    # copy an example config file to your local dir
+    # from the test dir of the distribution, do not modify
+    # t/config-for-t.json as tests may fail afterwards.
     cp t/config-for-t.json config.json
-    # optionally modify config.json to change the destination data dirs
-    # now fetch data from some default data providers:
-    script/statistics-covid-fetch-data-and-store.pl --config-file config.json
 
-The above will fetch the latest data and insert it into an SQLite
-database in C<data/db/covid19.sqlite> directory.
+    # optionally modify config.json to change the destination data dirs
+    # for example you can have undef "fileparams"
+    # "datafiles-dir": "data/files",
+    # and under "dbparams" (if you deal with SQLite)
+    # "dbdir" : "t/t-data/db", 
+    # now fetch data from some default data providers,
+    # fetched data files will be placed in data/files/<PROVIDERDIR> (timestamped)
+    # and a database will be created. If you are dealing with SQLite
+    # the database will be at
+    #     t/t-data/db/covid19.sqlite
+    script/statistics-covid-fetch-data-and-store.pl \
+        --config-file config.json
+
+    # if you do not want to save the fetched data into local files
+    # but only in db:
+    script/statistics-covid-fetch-data-and-store.pl \
+        --config-file config.json \
+        --nosave-to-file \
+        --save-to-db \
+        --provider 'World::JHU'
+
+The above examples will fetch the latest data and insert it into an SQLite
+database in C<data/db/covid19.sqlite> directory (but that
+depends on the "dbdir" entry in your config file.
 When this script is called again, it will fetch the data again
 and will be saved into a file timestamped with publication date.
 So, if data was already fetched it will be simply overwritten by
 this same data.
 
-As far as updating the database is concerned, only newer, up-to-date data
+It will also insert fetched data in the database. There are three
+modes of operation for that, denoted by the C<replace-existing-db-record>
+entry in the config file (under C<dparams>). Clarification:
+a I<duplicate> record means duplicate as far as the primary key(s)
+are concerned and nothing else. For example, L<Statistics::Covid::Datum>'s
+PK is a combination of
+C<name>, C<id> and C<datetimeISO8601> (see L<Statistics::Covid::Datum::Table>).
+If two records have these 3 fields exactly the same, then they are considered
+I<duplicate>.
+
+
+=over 2
+C<replace> : will force B<replacing> existing database data with new data, 
+no questions asked about. New data may be less up-to-date than the
+DB data. No questions asked.
+
+C<ignore> : will not insert new data if duplicate exists 
+
+only newer, up-to-date data
 will be inserted. So, calling this script, say once or twice will
 make sure you have the latest data without accummulating it
 redundantly.

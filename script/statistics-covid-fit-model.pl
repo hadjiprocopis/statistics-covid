@@ -67,11 +67,7 @@ if( ! defined($objs) ){ print STDERR "$0 : call to ".'select_datums_from_db_for_
 my $numobjs = scalar @$objs;
 if( $numobjs == 0 ){ print STDERR "$0 : nothing in database '".$dbname."'.\n"; exit(0) }
 
-# fetch all the data available (posibly json), process it,
-# create Datum objects, store it in DB and return an array 
-# of the Datum objects just fetched  (and not what is already in DB).
-my $newobjs = $covid->fetch_and_store();
-if( ! defined $newobjs ){ print STDERR "$0 : call to fetch_and_store() has failed.\n"; exit(1) }
+
 
 print "$0: done,\n";
 print "  rows in database before: $datums_in_db_before\n";

@@ -373,7 +373,7 @@ solidify.
                 'GroupBy' => ['name']
         });
 
-# EXAMPLE SCRIPT
+# EXAMPLE SCRIPTS
 
 `script/statistics-covid-fetch-data-and-store.pl` is
 a script which accompanies this distribution. It can be
@@ -382,33 +382,67 @@ specified configuration file.
 
 For a quick start:
 
+    # copy an example config file to your local dir
+    # from the test dir of the distribution, do not modify
+    # t/config-for-t.json as tests may fail afterwards.
     cp t/config-for-t.json config.json
-    # optionally modify config.json to change the destination data dirs
-    # now fetch data from some default data providers:
-    script/statistics-covid-fetch-data-and-store.pl --config-file config.json
 
-The above will fetch the latest data and insert it into an SQLite
-database in `data/db/covid19.sqlite` directory.
+    # optionally modify config.json to change the destination data dirs
+    # for example you can have undef "fileparams"
+    # "datafiles-dir": "data/files",
+    # and under "dbparams" (if you deal with SQLite)
+    # "dbdir" : "t/t-data/db", 
+    # now fetch data from some default data providers,
+    # fetched data files will be placed in data/files/<PROVIDERDIR> (timestamped)
+    # and a database will be created. If you are dealing with SQLite
+    # the database will be at
+    #     t/t-data/db/covid19.sqlite
+    script/statistics-covid-fetch-data-and-store.pl \
+        --config-file config.json
+
+    # if you do not want to save the fetched data into local files
+    # but only in db:
+    script/statistics-covid-fetch-data-and-store.pl \
+        --config-file config.json \
+        --nosave-to-file \
+        --save-to-db \
+        --provider 'World::JHU'
+
+The above examples will fetch the latest data and insert it into an SQLite
+database in `data/db/covid19.sqlite` directory (but that
+depends on the "dbdir" entry in your config file.
 When this script is called again, it will fetch the data again
 and will be saved into a file timestamped with publication date.
 So, if data was already fetched it will be simply overwritten by
 this same data.
 
-As far as updating the database is concerned, only newer, up-to-date data
-will be inserted. So, calling this script, say once or twice will
-make sure you have the latest data without accummulating it
-redundantly.
+It will also insert fetched data in the database. There are three
+modes of operation for that, denoted by the `replace-existing-db-record`
+entry in the config file (under `dparams`). Clarification:
+a _duplicate_ record means duplicate as far as the primary key(s)
+are concerned and nothing else. For example, [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum)'s
+PK is a combination of
+`name`, `id` and `datetimeISO8601` (see [Statistics::Covid::Datum::Table](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum%3A%3ATable)).
+If two records have these 3 fields exactly the same, then they are considered
+_duplicate_.
 
-**But please call this script AT MAXIMUM one or two times per day so as not to
-obstruct public resources. Please, Please.**
-
-When the database is up-to-date, analysis of data is the next step.
-
-In the synopis, it is shown how to select records from the database,
-as an array of [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum) objects. Feel free to
-share any modules you create on analysing this data, either
-under this namespace (for example Statistics::Covid::Analysis::XYZ)
-or any other you see appropriate.
+> `ignore` : will not insert new data if duplicate exists 
+>
+> only newer, up-to-date data
+> will be inserted. So, calling this script, say once or twice will
+> make sure you have the latest data without accummulating it
+> redundantly.
+>
+> **But please call this script AT MAXIMUM one or two times per day so as not to
+> obstruct public resources. Please, Please.**
+>
+> When the database is up-to-date, analysis of data is the next step.
+>
+> In the synopis, it is shown how to select records from the database,
+> as an array of [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum) objects. Feel free to
+> share any modules you create on analysing this data, either
+> under this namespace (for example Statistics::Covid::Analysis::XYZ)
+> or any other you see appropriate.
 
 # CONFIGURATION FILE
 
@@ -594,3 +628,15 @@ YOUR LOCAL LAW. UNLESS REQUIRED BY LAW, NO COPYRIGHT HOLDER OR
 CONTRIBUTOR WILL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, OR
 CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THE PACKAGE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 912:
+
+    &#x3d;over should be: '=over' or '=over positive\_number'
+
+- Around line 935:
+
+    You forgot a '=back' before '=head1'
