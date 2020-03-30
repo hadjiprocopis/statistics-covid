@@ -1,5 +1,8 @@
 Revision history for Statistics-Covid
 
+
+0.23	2020-03-30
+	1) Updated and added to Documentation
 0.22	2020-03-30
 	1) Created L<Statistics::Covid::Analysis::Model::Simple> to fit data to models (polynomial, exponential)
 	2) Improved L<Statistics::Covid::Analysis::Plot::Simple> which plots data.

@@ -34,8 +34,8 @@ solidify.
 
         use Statistics::Covid;
         use Statistics::Covid::Datum;
-        
-        $covid = Statistics::Covid->new({   
+
+        $covid = Statistics::Covid->new({
                 'config-file' => 't/config-for-t.json',
                 'providers' => ['UK::BBC', 'UK::GOVUK', 'World::JHU'],
                 'save-to-file' => 1,
@@ -43,42 +43,63 @@ solidify.
                 'debug' => 2,
         }) or die "Statistics::Covid->new() failed";
         # fetch all the data available (posibly json), process it,
-        # create Datum objects, store it in DB and return an array 
+        # create Datum objects, store it in DB and return an array
         # of the Datum objects just fetched  (and not what is already in DB).
         my $newobjs = $covid->fetch_and_store();
-        
+
         print $_->toString() for (@$newobjs);
-        
+
         print "Confirmed cases for ".$_->name()
                 ." on ".$_->date()
                 ." are: ".$_->confirmed()
                 ."\n"
         for (@$newobjs);
-        
+
         my $someObjs = $covid->select_datums_from_db({
                 'conditions' => {
                         belongsto=>'UK',
                         name=>'Hackney'
                 }
         });
-        
+
         print "Confirmed cases for ".$_->name()
                 ." on ".$_->date()
                 ." are: ".$_->confirmed()
                 ."\n"
         for (@$someObjs);
-        
+
         # or for a single place (this sub sorts results wrt publication time)
-        my $timelineObjs = $covid->select_datums_from_db_for_specific_location_time_ascending('Hackney');
+        my $timelineObjs =
+          $covid->select_datums_from_db_for_specific_location_time_ascending(
+                'Hackney'
+          );
+
         # or for a wildcard match
-        # $covid->select_datums_from_db_for_specific_location_time_ascending({'like'=>'Hack%'});
+        my $timelineObjs =
+          $covid->select_datums_from_db_for_specific_location_time_ascending(
+                {'like'=>'Hack%'}
+          );
+
         # and maybe specifying max rows
-        # $covid->select_datums_from_db_for_specific_location_time_ascending({'like'=>'Hack%'}, {'rows'=>10});
+        my $timelineObjs =
+          $covid->select_datums_from_db_for_specific_location_time_ascending(
+                {'like'=>'Hack%'}, {'rows'=>10}
+          );
+
+        # print those datums
         for my $anobj (@$timelineObjs){
                 print $anobj->toString()."\n";
         }
 
-        print "datum rows in DB: ".$covid->db_count_datums()."\n"
+        # total count of datapoints matching the select()
+        print "datum rows matched: ".scalar(@$timelineObjs)."\n";
+
+        # total count of datapoints in db
+        print "datum rows in DB: ".$covid->db_count_datums()."\n";
+
+        ###
+        # Here is how to select data and plot it
+        ##
 
         use Statistics::Covid;
         use Statistics::Covid::Datum;
@@ -86,92 +107,150 @@ solidify.
         use Statistics::Covid::Analysis::Plot::Simple;
 
         # now read some data from DB and do things with it
-        $covid = Statistics::Covid->new({   
+        # this assumes a test database in t/t-data/db/covid19.sqlite
+        # which is already supplied with this module (60K)
+        # use a different config-file (or copy and modify
+        # the one in use here, but don't modify itself because
+        # tests depend on it)
+        $covid = Statistics::Covid->new({
                 'config-file' => 't/config-for-t.json',
                 'debug' => 2,
         }) or die "Statistics::Covid->new() failed";
-        # retrieve data from DB for selected locations (in the UK)
+
+        # select data from DB for selected locations (in the UK)
         # data will come out as an array of Datum objects sorted wrt time
-        # (the 'datetimeUnixEpoch' field)
-        $objs = $covid->select_datums_from_db_for_specific_location_time_ascending(
+        # (wrt the 'datetimeUnixEpoch' field)
+        $objs =
+          $covid->select_datums_from_db_for_specific_location_time_ascending(
                 #{'like' => 'Ha%'}, # the location (wildcard)
                 ['Halton', 'Havering'],
                 #{'like' => 'Halton'}, # the location (wildcard)
                 #{'like' => 'Havering'}, # the location (wildcard)
-                'UK', # the belongsto (could have been wildcarded)
-        );
-        # create a dataframe
+                'UK', # the belongsto (could have been wildcarded or omitted)
+          );
+
+        # create a dataframe (see doc in L<Statistics::Covid::Utils>)
         $df = Statistics::Covid::Utils::datums2dataframe({
+                # input data is an array of L<Statistics::Covid::Datum>'s
+                # as fetched from providers or selected from DB (see above)
                 'datum-objs' => $objs,
+
                 # collect data from all those with same 'name' and same 'belongsto'
                 # and maybe plot this data as a single curve (or fit or whatever)
+                # this will essentially create an entry for 'Hubei|China'
+                # another for 'Italy|World', another for 'Hackney|UK'
+                # etc. FOR all name/belongsto tuples in your
+                # selected L<Statistics::Covid::Datum>'s
                 'groupby' => ['name','belongsto'],
-                # put only these values of the datum object into the dataframe
-                # one of them will be X, another will be Y
+
+                # what fields/attributes/column-names of the datum object
+                # to insert into the dataframe?
+                # for plotting you need at least 2, one for the role of X
+                # and one for the role of Y (see plotting later)
                 # if you want to plot multiple Y, then add here more dependent columns
-                # like ('unconfirmed').
+                # e.g. ('unconfirmed', etc.).
+                # here we insert the values of 3 column-names
+                # it will be an array of values for each field in the same order
+                # as in the input '$objs' array.
+                # Which was time-ascending sorted upon the select() (see retrieving above)
                 'content' => ['confirmed', 'unconfirmed', 'datetimeUnixEpoch'],
         });
 
-        # plot confirmed vs time
+        # plot 'confirmed' vs 'time'
         $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+                # the dataframe we just created
                 'dataframe' => $df,
-                # saves to this file:
+
+                # saves the plot image to this file:
                 'outfile' => 'confirmed-over-time.png',
+
                 # plot this column against X
-                # (which is not present and default is time ('datetimeUnixEpoch')
+                # (which is not present and default is
+                # time : 'datetimeUnixEpoch'
                 'Y' => 'confirmed',
+                # if X is not present it is assumed to be this:
+                #'X' => 'datetimeUnixEpoch',
         });
 
         # plot confirmed vs unconfirmed
-        # if you see a vertical line it means that your data has no 'unconfirmed'
+        # if you see in your plot just a vertical line
+        # it means that your data has no 'unconfirmed' variation
+        # most likely all 'unconfirmed' are zero because
+        # the data provider does not provide these values.
         $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
                 'dataframe' => $df,
-                # saves to this file:
                 'outfile' => 'confirmed-vs-unconfirmed.png',
+                # the role of X is now this, not time as above
                 'X' => 'unconfirmed',
-                # plot this column against X
+                # plot this column with X
                 'Y' => 'confirmed',
         });
 
         # plot using an array of datum objects as they came
-        # out of the DB. A dataframe is created internally to the plot()
-        # but this is not recommended if you are going to make several
+        # out of the DB.
+        # For convenience, a dataframe is created internally, in  plot(),
+        # This is not recommended if you are going to make several
         # plots because equally many dataframes must be created and destroyed
-        # internally instead of recycling them like we do here...
+        # internally instead of recycling them like we do above  ...
         $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+                # datum objs instead of a dataframe, you need to
+                # define some parameters for the creation of
+                # the dataframe, e.g. 'GroupBy'
                 'datum-objs' => $objs,
-                # saves to this file:
-                'outfile' => 'confirmed-over-time.png',
-                # plot this column as Y
-                'Y' => 'confirmed', 
-                # X is not present so default is time ('datetimeUnixEpoch')
-                # and make several plots, each group must have 'name' common
+                # see the datums2dataframe() example above for explanation:
                 'GroupBy' => ['name', 'belongsto'],
+
+                'outfile' => 'confirmed-over-time.png',
+                # use this column as Y
+                'Y' => 'confirmed',
+                # X is not present so default is time ('datetimeUnixEpoch')
+                # here we specify how to format the X (time) values,
+                # i.e. seconds since the Unix epoch.
+                # print them only as Months (numbers): %m
+                # see Chart::Clicker::Axis::DateTime for all the options
+                # if not present a default format for time will be supplied.
                 'date-format-x' => {
-                        # see Chart::Clicker::Axis::DateTime for all the options:
                         format => '%m', ##<<< specify timeformat for X axis, only months
                         position => 'bottom',
                         orientation => 'horizontal'
                 },
         });
 
+        #####
+        # Fit an analytical model to data
+        # i.e. find the parameters of a user-specified
+        # equation which can fit on all the data points
+        # with the least error.
+        # In suce cases (growth), an exponential model is
+        # usual: c1 * c2^x (c1 and c2 must be found / fitted)
+        # 'x' is the independent variable and usually denotes time
+        # time in L<Statistics::Covid::Datum> is the
+        # 'datetimeUnixEpoch' field     
+        #####
+
         use Statistics::Covid;
         use Statistics::Covid::Datum;
         use Statistics::Covid::Utils;
         use Statistics::Covid::Analysis::Model::Simple;
 
-        # create a dataframe
+        # create a dataframe, as before, from some select()'ed
+        # L<Statistics::Covid::Datum> objects from DB or provider.
         my $df = Statistics::Covid::Utils::datums2dataframe({
                 'datum-objs' => $objs,
                 'groupby' => ['name'],
                 'content' => ['confirmed', 'datetimeUnixEpoch'],
         });
-        # convert all 'datetimeUnixEpoch' data to hours, the oldest will be hour 0
+        # we have a problem because seconds since the Unix epoch
+        # is a huge number and the fitter algorithm does not like it.
+        # So push their oldest datapoint to 0 (hours) and all
+        # later datapoints to be relative to that.
+        # This does not affect data in DB or even in the array of
+        # datum objects. This affects the dataframe created above only
         for(sort keys %$df){
                 Statistics::Covid::Utils::discretise_increasing_sequence_of_seconds(
-                        $df->{$_}->{'datetimeUnixEpoch'}, # in-place modification
-                        3600 # seconds->hours
+                        $df->{$_}->{'datetimeUnixEpoch'}, # << in-place modification
+                        3600, # seconds -> hours
+                        0 # optional offset, (the 0 hour above)
                 )
         }
 
@@ -289,11 +368,10 @@ solidify.
                 # saves to this file:
                 'outfile' => $outfile,
                 # plot this column (x-axis is time always)
-                'Y' => 'confirmed', 
+                'Y' => 'confirmed',
                 # and make several plots, each group must have 'name' common
                 'GroupBy' => ['name']
         });
-        
 
 # EXAMPLE SCRIPT
 
@@ -314,7 +392,7 @@ database in `data/db/covid19.sqlite` directory.
 When this script is called again, it will fetch the data again
 and will be saved into a file timestamped with publication date.
 So, if data was already fetched it will be simply overwritten by
-this same data. 
+this same data.
 
 As far as updating the database is concerned, only newer, up-to-date data
 will be inserted. So, calling this script, say once or twice will
@@ -335,7 +413,7 @@ or any other you see appropriate.
 # CONFIGURATION FILE
 
 Below is an example configuration file which is essentially JSON with comments.
-It can be found in `t/config-for-t.json` relative to the root directory 
+It can be found in `t/config-for-t.json` relative to the root directory
 of this distribution.
 
         # comments are allowed, otherwise it is json
