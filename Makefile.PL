@@ -3,6 +3,13 @@ use strict;
 use warnings;
 use ExtUtils::MakeMaker;
 
+sub MY::libscan {
+    my( $mm, $file ) = @_;
+    return if $file =~  /^push_to_GIT$/; # SKIP the git dir
+    return if $file =~ /\.lock$/; # SKIP editor files
+    return $file;
+}
+
 WriteMakefile(
    INSTALL_BASE	 => "$ENV{HOME}/usr",
 	NAME		 => 'Statistics::Covid',

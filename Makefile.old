@@ -15,12 +15,14 @@
 #     AUTHOR => [q[Andreas Hadjiprocopis <bliako@cpan.org> / <andreashad2@gmail.com>]]
 #     BUILD_REQUIRES => { Test::Harness=>q[0], Test::More=>q[0] }
 #     CONFIGURE_REQUIRES => { ExtUtils::MakeMaker=>q[0] }
-#     EXE_FILES => [q[script/statistics-covid-fetch-data-and-store.pl], q[script/db-search-and-make-new-db.pl]]
+#     EXE_FILES => [q[script/statistics-covid-fetch-data-and-store.pl], q[script/db-search-and-make-new-db.pl], q[script/statistics-covid-plot-data-and-fit-model.pl], q[script/datasets-worldbank-fetch-data-and-store.pl], q[script/statistics-covid-select-data.pl]]
+#     INSTALL_BASE => q[/home/andreas/usr]
 #     LICENSE => q[artistic_2]
-#     MIN_PERL_VERSION => q[5.006]
+#     META_MERGE => { meta-spec=>{ version=>q[2] }, requires=>{ perl=>q[5.10.0] }, resources=>{ bugtracker=>{ web=>q[https://github.com/hadjiprocopis/statistics-covid/issues] }, homepage=>q[https://metacpan.org/module/Statistics::Covid], license=>q[artistic_2], repository=>{ type=>q[git], url=>q[https://github.com/hadjiprocopis/statistics-covid], web=>q[https://github.com/hadjiprocopis/statistics-covid] } } }
+#     MIN_PERL_VERSION => q[5.010000]
 #     NAME => q[Statistics::Covid]
 #     PL_FILES => {  }
-#     PREREQ_PM => { Algorithm::CurveFit=>q[1.0], Chart::Clicker=>q[0], DBD::SQLite=>q[1.60], DBI=>q[1.60], DBIx::Class=>q[0.08], Data::Dump=>q[0], DateTime=>q[0], DateTime::Format::Strptime=>q[0], File::Basename=>q[0], File::Copy=>q[0], File::Find=>q[0], File::Path=>q[0], File::Spec=>q[0], File::Temp=>q[0], Getopt::Long=>q[0], HTTP::CookieJar::LWP=>q[0], JSON::Parse=>q[0], LWP::UserAgent=>q[0], Math::Symbolic=>q[0.6], SQL::Translator=>q[0.11019], Storable=>q[0], Test::Harness=>q[0], Test::More=>q[0], Try::Tiny=>q[0] }
+#     PREREQ_PM => { Algorithm::CurveFit=>q[1.0], Chart::Clicker=>q[2.90], DBD::SQLite=>q[1.60], DBI=>q[1.60], DBIx::Class=>q[0.08], Data::Dump=>q[0], Data::Dumper::AutoEncode=>q[0], Data::Roundtrip=>q[0.04], Data::Undump=>q[0], DateTime=>q[0], DateTime::Format::Strptime=>q[0], Encode=>q[0], File::Basename=>q[0], File::Copy=>q[0], File::Find=>q[0], File::Path=>q[0], File::Spec=>q[0], File::Temp=>q[0], Getopt::Long=>q[0], HTTP::CookieJar::LWP=>q[0], HTTP::Headers=>q[0], HTTP::Request=>q[0], IO::Uncompress::Unzip=>q[0], JSON=>q[0], LWP::UserAgent=>q[0], Locale::Country=>q[3.63], Math::Symbolic=>q[0.6], SQL::Translator=>q[0.11019], Storable=>q[0], Test::Harness=>q[0], Test::More=>q[0], Text::CSV_XS=>q[0], WWW::Github::Files=>q[0], XML::Twig=>q[3.52] }
 #     TEST_REQUIRES => {  }
 #     VERSION_FROM => q[lib/Statistics/Covid.pm]
 #     clean => { FILES=>q[Statistics-Covid-UK-*] }
@@ -49,7 +51,7 @@ LIBC = libc-2.29.so
 LIB_EXT = .a
 OBJ_EXT = .o
 OSNAME = linux
-OSVERS = 5.1.16-200.fc29.x86_64
+OSVERS = 5.5.10-200.fc31.x86_64
 RANLIB = :
 SITELIBEXP = /usr/local/share/perl5
 SITEARCHEXP = /usr/local/lib64/perl5
@@ -64,11 +66,11 @@ DIRFILESEP = /
 DFSEP = $(DIRFILESEP)
 NAME = Statistics::Covid
 NAME_SYM = Statistics_Covid
-VERSION = 0.23
+VERSION = 0.24
 VERSION_MACRO = VERSION
-VERSION_SYM = 0_23
+VERSION_SYM = 0_24
 DEFINE_VERSION = -D$(VERSION_MACRO)=\"$(VERSION)\"
-XS_VERSION = 0.23
+XS_VERSION = 0.24
 XS_VERSION_MACRO = XS_VERSION
 XS_DEFINE_VERSION = -D$(XS_VERSION_MACRO)=\"$(XS_VERSION)\"
 INST_ARCHLIB = ../blib/arch
@@ -82,46 +84,44 @@ MAN3EXT = 3pm
 MAN1SECTION = 1
 MAN3SECTION = 3
 INSTALLDIRS = site
+INSTALL_BASE = /home/andreas/usr
 DESTDIR = 
-PREFIX = $(SITEPREFIX)
-PERLPREFIX = /usr
-SITEPREFIX = /usr/local
-VENDORPREFIX = /usr
-INSTALLPRIVLIB = /usr/share/perl5
+PREFIX = $(INSTALL_BASE)
+INSTALLPRIVLIB = $(INSTALL_BASE)/lib/perl5
 DESTINSTALLPRIVLIB = $(DESTDIR)$(INSTALLPRIVLIB)
-INSTALLSITELIB = /usr/local/share/perl5
+INSTALLSITELIB = $(INSTALL_BASE)/lib/perl5
 DESTINSTALLSITELIB = $(DESTDIR)$(INSTALLSITELIB)
-INSTALLVENDORLIB = /usr/share/perl5/vendor_perl
+INSTALLVENDORLIB = $(INSTALL_BASE)/lib/perl5
 DESTINSTALLVENDORLIB = $(DESTDIR)$(INSTALLVENDORLIB)
-INSTALLARCHLIB = /usr/lib64/perl5
+INSTALLARCHLIB = $(INSTALL_BASE)/lib/perl5/x86_64-linux-thread-multi
 DESTINSTALLARCHLIB = $(DESTDIR)$(INSTALLARCHLIB)
-INSTALLSITEARCH = /usr/local/lib64/perl5
+INSTALLSITEARCH = $(INSTALL_BASE)/lib/perl5/x86_64-linux-thread-multi
 DESTINSTALLSITEARCH = $(DESTDIR)$(INSTALLSITEARCH)
-INSTALLVENDORARCH = /usr/lib64/perl5/vendor_perl
+INSTALLVENDORARCH = $(INSTALL_BASE)/lib/perl5/x86_64-linux-thread-multi
 DESTINSTALLVENDORARCH = $(DESTDIR)$(INSTALLVENDORARCH)
-INSTALLBIN = /usr/bin
+INSTALLBIN = $(INSTALL_BASE)/bin
 DESTINSTALLBIN = $(DESTDIR)$(INSTALLBIN)
-INSTALLSITEBIN = /usr/local/bin
+INSTALLSITEBIN = $(INSTALL_BASE)/bin
 DESTINSTALLSITEBIN = $(DESTDIR)$(INSTALLSITEBIN)
-INSTALLVENDORBIN = /usr/bin
+INSTALLVENDORBIN = $(INSTALL_BASE)/bin
 DESTINSTALLVENDORBIN = $(DESTDIR)$(INSTALLVENDORBIN)
-INSTALLSCRIPT = /usr/bin
+INSTALLSCRIPT = $(INSTALL_BASE)/bin
 DESTINSTALLSCRIPT = $(DESTDIR)$(INSTALLSCRIPT)
-INSTALLSITESCRIPT = /usr/local/bin
+INSTALLSITESCRIPT = $(INSTALL_BASE)/bin
 DESTINSTALLSITESCRIPT = $(DESTDIR)$(INSTALLSITESCRIPT)
-INSTALLVENDORSCRIPT = /usr/bin
+INSTALLVENDORSCRIPT = $(INSTALL_BASE)/bin
 DESTINSTALLVENDORSCRIPT = $(DESTDIR)$(INSTALLVENDORSCRIPT)
-INSTALLMAN1DIR = /usr/share/man/man1
+INSTALLMAN1DIR = $(INSTALL_BASE)/man/man1
 DESTINSTALLMAN1DIR = $(DESTDIR)$(INSTALLMAN1DIR)
-INSTALLSITEMAN1DIR = /usr/local/share/man/man1
+INSTALLSITEMAN1DIR = $(INSTALL_BASE)/man/man1
 DESTINSTALLSITEMAN1DIR = $(DESTDIR)$(INSTALLSITEMAN1DIR)
-INSTALLVENDORMAN1DIR = /usr/share/man/man1
+INSTALLVENDORMAN1DIR = $(INSTALL_BASE)/man/man1
 DESTINSTALLVENDORMAN1DIR = $(DESTDIR)$(INSTALLVENDORMAN1DIR)
-INSTALLMAN3DIR = /usr/share/man/man3
+INSTALLMAN3DIR = $(INSTALL_BASE)/man/man3
 DESTINSTALLMAN3DIR = $(DESTDIR)$(INSTALLMAN3DIR)
-INSTALLSITEMAN3DIR = /usr/local/share/man/man3
+INSTALLSITEMAN3DIR = $(INSTALL_BASE)/man/man3
 DESTINSTALLSITEMAN3DIR = $(DESTDIR)$(INSTALLSITEMAN3DIR)
-INSTALLVENDORMAN3DIR = /usr/share/man/man3
+INSTALLVENDORMAN3DIR = $(INSTALL_BASE)/man/man3
 DESTINSTALLVENDORMAN3DIR = $(DESTDIR)$(INSTALLVENDORMAN3DIR)
 PERL_LIB = /usr/share/perl5
 PERL_ARCHLIB = /usr/lib64/perl5
@@ -171,15 +171,19 @@ XS_FILES =
 C_FILES  = 
 O_FILES  = 
 H_FILES  = 
-MAN1PODS = 
+MAN1PODS = script/statistics-covid-plot-data-and-fit-model.pl \
+	script/statistics-covid-select-data.pl
 MAN3PODS = lib/Statistics/Covid.pm \
+	lib/Statistics/Covid/Analysis/Model.pm \
 	lib/Statistics/Covid/Analysis/Model/Simple.pm \
 	lib/Statistics/Covid/Analysis/Plot/Simple.pm \
+	lib/Statistics/Covid/Cookbook.pm \
 	lib/Statistics/Covid/Datum.pm \
-	lib/Statistics/Covid/Migrator.pm \
+	lib/Statistics/Covid/Geographer.pm \
 	lib/Statistics/Covid/Schema.pm \
 	lib/Statistics/Covid/Schema/Result/Datum.pm \
 	lib/Statistics/Covid/Schema/Result/Version.pm \
+	lib/Statistics/Covid/Schema/Result/WorldbankData.pm \
 	lib/Statistics/Covid/Utils.pm
 
 # Where is the Config information that we are using/depend on
@@ -204,25 +208,36 @@ PERL_ARCHIVE_AFTER =
 
 
 TO_INST_PM = lib/Statistics/Covid.pm \
+	lib/Statistics/Covid/Analysis/Model.pm \
 	lib/Statistics/Covid/Analysis/Model/Simple.pm \
 	lib/Statistics/Covid/Analysis/Plot/Simple.pm \
+	lib/Statistics/Covid/Cookbook.pm \
 	lib/Statistics/Covid/DataProvider/Base.pm \
+	lib/Statistics/Covid/DataProvider/UK/1 \
 	lib/Statistics/Covid/DataProvider/UK/BBC.pm \
 	lib/Statistics/Covid/DataProvider/UK/GOVUK.pm \
+	lib/Statistics/Covid/DataProvider/UK/GOVUK2.pm \
+	lib/Statistics/Covid/DataProvider/UK/index.html \
 	lib/Statistics/Covid/DataProvider/World/JHU.pm \
+	lib/Statistics/Covid/DataProvider/World/JHUgithub.pm \
+	lib/Statistics/Covid/DataProvider/World/JHUlocaldir.pm \
 	lib/Statistics/Covid/Datum.pm \
 	lib/Statistics/Covid/Datum/IO.pm \
 	lib/Statistics/Covid/Datum/Table.pm \
+	lib/Statistics/Covid/Geographer.pm \
 	lib/Statistics/Covid/IO/Base.pm \
 	lib/Statistics/Covid/IO/DualBase.pm \
-	lib/Statistics/Covid/Migrator.pm \
 	lib/Statistics/Covid/Schema.pm \
 	lib/Statistics/Covid/Schema/Result/Datum.pm \
 	lib/Statistics/Covid/Schema/Result/Version.pm \
+	lib/Statistics/Covid/Schema/Result/WorldbankData.pm \
 	lib/Statistics/Covid/Utils.pm \
 	lib/Statistics/Covid/Version.pm \
 	lib/Statistics/Covid/Version/IO.pm \
-	lib/Statistics/Covid/Version/Table.pm
+	lib/Statistics/Covid/Version/Table.pm \
+	lib/Statistics/Covid/WorldbankData.pm \
+	lib/Statistics/Covid/WorldbankData/IO.pm \
+	lib/Statistics/Covid/WorldbankData/Table.pm
 
 
 # --- MakeMaker platform_constants section:
@@ -301,6 +316,7 @@ makemakerdflt : all
 PASTHRU = LIBPERL_A="$(LIBPERL_A)"\
 	LINKTYPE="$(LINKTYPE)"\
 	PREFIX="$(PREFIX)"\
+	INSTALL_BASE="$(INSTALL_BASE)"\
 	PASTHRU_DEFINE='$(DEFINE) $(PASTHRU_DEFINE)'\
 	PASTHRU_INC='$(INC) $(PASTHRU_INC)'
 
@@ -432,23 +448,34 @@ POD2MAN = $(POD2MAN_EXE)
 
 manifypods : pure_all config  \
 	lib/Statistics/Covid.pm \
+	lib/Statistics/Covid/Analysis/Model.pm \
 	lib/Statistics/Covid/Analysis/Model/Simple.pm \
 	lib/Statistics/Covid/Analysis/Plot/Simple.pm \
+	lib/Statistics/Covid/Cookbook.pm \
 	lib/Statistics/Covid/Datum.pm \
-	lib/Statistics/Covid/Migrator.pm \
+	lib/Statistics/Covid/Geographer.pm \
 	lib/Statistics/Covid/Schema.pm \
 	lib/Statistics/Covid/Schema/Result/Datum.pm \
 	lib/Statistics/Covid/Schema/Result/Version.pm \
-	lib/Statistics/Covid/Utils.pm
+	lib/Statistics/Covid/Schema/Result/WorldbankData.pm \
+	lib/Statistics/Covid/Utils.pm \
+	script/statistics-covid-plot-data-and-fit-model.pl \
+	script/statistics-covid-select-data.pl
+	$(NOECHO) $(POD2MAN) --section=$(MAN1SECTION) --perm_rw=$(PERM_RW) -u \
+	  script/statistics-covid-plot-data-and-fit-model.pl $(INST_MAN1DIR)/statistics-covid-plot-data-and-fit-model.pl.$(MAN1EXT) \
+	  script/statistics-covid-select-data.pl $(INST_MAN1DIR)/statistics-covid-select-data.pl.$(MAN1EXT) 
 	$(NOECHO) $(POD2MAN) --section=$(MAN3SECTION) --perm_rw=$(PERM_RW) -u \
 	  lib/Statistics/Covid.pm $(INST_MAN3DIR)/Statistics::Covid.$(MAN3EXT) \
+	  lib/Statistics/Covid/Analysis/Model.pm $(INST_MAN3DIR)/Statistics::Covid::Analysis::Model.$(MAN3EXT) \
 	  lib/Statistics/Covid/Analysis/Model/Simple.pm $(INST_MAN3DIR)/Statistics::Covid::Analysis::Model::Simple.$(MAN3EXT) \
 	  lib/Statistics/Covid/Analysis/Plot/Simple.pm $(INST_MAN3DIR)/Statistics::Covid::Analysis::Plot::Simple.$(MAN3EXT) \
+	  lib/Statistics/Covid/Cookbook.pm $(INST_MAN3DIR)/Statistics::Covid::Cookbook.$(MAN3EXT) \
 	  lib/Statistics/Covid/Datum.pm $(INST_MAN3DIR)/Statistics::Covid::Datum.$(MAN3EXT) \
-	  lib/Statistics/Covid/Migrator.pm $(INST_MAN3DIR)/Statistics::Covid::Migrator.$(MAN3EXT) \
+	  lib/Statistics/Covid/Geographer.pm $(INST_MAN3DIR)/Statistics::Covid::Geographer.$(MAN3EXT) \
 	  lib/Statistics/Covid/Schema.pm $(INST_MAN3DIR)/Statistics::Covid::Schema.$(MAN3EXT) \
 	  lib/Statistics/Covid/Schema/Result/Datum.pm $(INST_MAN3DIR)/Statistics::Covid::Schema::Result::Datum.$(MAN3EXT) \
 	  lib/Statistics/Covid/Schema/Result/Version.pm $(INST_MAN3DIR)/Statistics::Covid::Schema::Result::Version.$(MAN3EXT) \
+	  lib/Statistics/Covid/Schema/Result/WorldbankData.pm $(INST_MAN3DIR)/Statistics::Covid::Schema::Result::WorldbankData.$(MAN3EXT) \
 	  lib/Statistics/Covid/Utils.pm $(INST_MAN3DIR)/Statistics::Covid::Utils.$(MAN3EXT) 
 
 
@@ -459,14 +486,22 @@ manifypods : pure_all config  \
 
 # --- MakeMaker installbin section:
 
-EXE_FILES = script/db-search-and-make-new-db.pl script/statistics-covid-fetch-data-and-store.pl
+EXE_FILES = script/datasets-worldbank-fetch-data-and-store.pl script/db-search-and-make-new-db.pl script/statistics-covid-fetch-data-and-store.pl script/statistics-covid-plot-data-and-fit-model.pl script/statistics-covid-select-data.pl
 
-pure_all :: $(INST_SCRIPT)/db-search-and-make-new-db.pl $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl
+pure_all :: $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl $(INST_SCRIPT)/db-search-and-make-new-db.pl $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl $(INST_SCRIPT)/statistics-covid-select-data.pl
 	$(NOECHO) $(NOOP)
 
 realclean ::
 	$(RM_F) \
-	  $(INST_SCRIPT)/db-search-and-make-new-db.pl $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl 
+	  $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl $(INST_SCRIPT)/db-search-and-make-new-db.pl \
+	  $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl \
+	  $(INST_SCRIPT)/statistics-covid-select-data.pl 
+
+$(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl : script/datasets-worldbank-fetch-data-and-store.pl $(FIRST_MAKEFILE) $(INST_SCRIPT)$(DFSEP).exists $(INST_BIN)$(DFSEP).exists
+	$(NOECHO) $(RM_F) $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl
+	$(CP) script/datasets-worldbank-fetch-data-and-store.pl $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl
+	$(FIXIN) $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl
+	-$(NOECHO) $(CHMOD) $(PERM_RWX) $(INST_SCRIPT)/datasets-worldbank-fetch-data-and-store.pl
 
 $(INST_SCRIPT)/db-search-and-make-new-db.pl : script/db-search-and-make-new-db.pl $(FIRST_MAKEFILE) $(INST_SCRIPT)$(DFSEP).exists $(INST_BIN)$(DFSEP).exists
 	$(NOECHO) $(RM_F) $(INST_SCRIPT)/db-search-and-make-new-db.pl
@@ -479,6 +514,18 @@ $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl : script/statistics-covi
 	$(CP) script/statistics-covid-fetch-data-and-store.pl $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl
 	$(FIXIN) $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl
 	-$(NOECHO) $(CHMOD) $(PERM_RWX) $(INST_SCRIPT)/statistics-covid-fetch-data-and-store.pl
+
+$(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl : script/statistics-covid-plot-data-and-fit-model.pl $(FIRST_MAKEFILE) $(INST_SCRIPT)$(DFSEP).exists $(INST_BIN)$(DFSEP).exists
+	$(NOECHO) $(RM_F) $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl
+	$(CP) script/statistics-covid-plot-data-and-fit-model.pl $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl
+	$(FIXIN) $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl
+	-$(NOECHO) $(CHMOD) $(PERM_RWX) $(INST_SCRIPT)/statistics-covid-plot-data-and-fit-model.pl
+
+$(INST_SCRIPT)/statistics-covid-select-data.pl : script/statistics-covid-select-data.pl $(FIRST_MAKEFILE) $(INST_SCRIPT)$(DFSEP).exists $(INST_BIN)$(DFSEP).exists
+	$(NOECHO) $(RM_F) $(INST_SCRIPT)/statistics-covid-select-data.pl
+	$(CP) script/statistics-covid-select-data.pl $(INST_SCRIPT)/statistics-covid-select-data.pl
+	$(FIXIN) $(INST_SCRIPT)/statistics-covid-select-data.pl
+	-$(NOECHO) $(CHMOD) $(PERM_RWX) $(INST_SCRIPT)/statistics-covid-select-data.pl
 
 
 
@@ -560,13 +607,17 @@ metafile : create_distdir
 	$(NOECHO) $(ECHO) '    - inc' >> META_new.yml
 	$(NOECHO) $(ECHO) 'requires:' >> META_new.yml
 	$(NOECHO) $(ECHO) '  Algorithm::CurveFit: '\''1.0'\''' >> META_new.yml
-	$(NOECHO) $(ECHO) '  Chart::Clicker: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Chart::Clicker: '\''2.90'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  DBD::SQLite: '\''1.60'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  DBI: '\''1.60'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  DBIx::Class: '\''0.08'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  Data::Dump: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Data::Dumper::AutoEncode: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Data::Roundtrip: '\''0.04'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Data::Undump: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  DateTime: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  DateTime::Format::Strptime: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Encode: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  File::Basename: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  File::Copy: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  File::Find: '\''0'\''' >> META_new.yml
@@ -575,14 +626,24 @@ metafile : create_distdir
 	$(NOECHO) $(ECHO) '  File::Temp: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  Getopt::Long: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  HTTP::CookieJar::LWP: '\''0'\''' >> META_new.yml
-	$(NOECHO) $(ECHO) '  JSON::Parse: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  HTTP::Headers: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  HTTP::Request: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  IO::Uncompress::Unzip: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  JSON: '\''0'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  LWP::UserAgent: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Locale::Country: '\''3.63'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  Math::Symbolic: '\''0.6'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  SQL::Translator: '\''0.11019'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) '  Storable: '\''0'\''' >> META_new.yml
-	$(NOECHO) $(ECHO) '  Try::Tiny: '\''0'\''' >> META_new.yml
-	$(NOECHO) $(ECHO) '  perl: '\''5.006'\''' >> META_new.yml
-	$(NOECHO) $(ECHO) 'version: '\''0.23'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  Text::CSV_XS: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  WWW::Github::Files: '\''0'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  XML::Twig: '\''3.52'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) '  perl: '\''5.010000'\''' >> META_new.yml
+	$(NOECHO) $(ECHO) 'resources:' >> META_new.yml
+	$(NOECHO) $(ECHO) '  bugtracker: https://github.com/hadjiprocopis/statistics-covid/issues' >> META_new.yml
+	$(NOECHO) $(ECHO) '  homepage: https://metacpan.org/module/Statistics::Covid' >> META_new.yml
+	$(NOECHO) $(ECHO) '  repository: https://github.com/hadjiprocopis/statistics-covid' >> META_new.yml
+	$(NOECHO) $(ECHO) 'version: '\''0.24'\''' >> META_new.yml
 	$(NOECHO) $(ECHO) 'x_serialization_backend: '\''CPAN::Meta::YAML version 0.018'\''' >> META_new.yml
 	-$(NOECHO) $(MV) META_new.yml $(DISTVNAME)/META.yml
 	$(NOECHO) $(ECHO) Generating META.json
@@ -622,13 +683,17 @@ metafile : create_distdir
 	$(NOECHO) $(ECHO) '      "runtime" : {' >> META_new.json
 	$(NOECHO) $(ECHO) '         "requires" : {' >> META_new.json
 	$(NOECHO) $(ECHO) '            "Algorithm::CurveFit" : "1.0",' >> META_new.json
-	$(NOECHO) $(ECHO) '            "Chart::Clicker" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Chart::Clicker" : "2.90",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "DBD::SQLite" : "1.60",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "DBI" : "1.60",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "DBIx::Class" : "0.08",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "Data::Dump" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Data::Dumper::AutoEncode" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Data::Roundtrip" : "0.04",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Data::Undump" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "DateTime" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "DateTime::Format::Strptime" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Encode" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "File::Basename" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "File::Copy" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "File::Find" : "0",' >> META_new.json
@@ -637,18 +702,35 @@ metafile : create_distdir
 	$(NOECHO) $(ECHO) '            "File::Temp" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "Getopt::Long" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "HTTP::CookieJar::LWP" : "0",' >> META_new.json
-	$(NOECHO) $(ECHO) '            "JSON::Parse" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "HTTP::Headers" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "HTTP::Request" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "IO::Uncompress::Unzip" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "JSON" : "0",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "LWP::UserAgent" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Locale::Country" : "3.63",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "Math::Symbolic" : "0.6",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "SQL::Translator" : "0.11019",' >> META_new.json
 	$(NOECHO) $(ECHO) '            "Storable" : "0",' >> META_new.json
-	$(NOECHO) $(ECHO) '            "Try::Tiny" : "0",' >> META_new.json
-	$(NOECHO) $(ECHO) '            "perl" : "5.006"' >> META_new.json
+	$(NOECHO) $(ECHO) '            "Text::CSV_XS" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "WWW::Github::Files" : "0",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "XML::Twig" : "3.52",' >> META_new.json
+	$(NOECHO) $(ECHO) '            "perl" : "5.010000"' >> META_new.json
 	$(NOECHO) $(ECHO) '         }' >> META_new.json
 	$(NOECHO) $(ECHO) '      }' >> META_new.json
 	$(NOECHO) $(ECHO) '   },' >> META_new.json
 	$(NOECHO) $(ECHO) '   "release_status" : "stable",' >> META_new.json
-	$(NOECHO) $(ECHO) '   "version" : "0.23",' >> META_new.json
+	$(NOECHO) $(ECHO) '   "resources" : {' >> META_new.json
+	$(NOECHO) $(ECHO) '      "bugtracker" : {' >> META_new.json
+	$(NOECHO) $(ECHO) '         "web" : "https://github.com/hadjiprocopis/statistics-covid/issues"' >> META_new.json
+	$(NOECHO) $(ECHO) '      },' >> META_new.json
+	$(NOECHO) $(ECHO) '      "homepage" : "https://metacpan.org/module/Statistics::Covid",' >> META_new.json
+	$(NOECHO) $(ECHO) '      "repository" : {' >> META_new.json
+	$(NOECHO) $(ECHO) '         "type" : "git",' >> META_new.json
+	$(NOECHO) $(ECHO) '         "url" : "https://github.com/hadjiprocopis/statistics-covid",' >> META_new.json
+	$(NOECHO) $(ECHO) '         "web" : "https://github.com/hadjiprocopis/statistics-covid"' >> META_new.json
+	$(NOECHO) $(ECHO) '      }' >> META_new.json
+	$(NOECHO) $(ECHO) '   },' >> META_new.json
+	$(NOECHO) $(ECHO) '   "version" : "0.24",' >> META_new.json
 	$(NOECHO) $(ECHO) '   "x_serialization_backend" : "JSON::PP version 4.04"' >> META_new.json
 	$(NOECHO) $(ECHO) '}' >> META_new.json
 	-$(NOECHO) $(MV) META_new.json $(DISTVNAME)/META.json
@@ -762,19 +844,23 @@ testdb_static :: static pure_all
 # --- MakeMaker ppd section:
 # Creates a PPD (Perl Package Description) for a binary distribution.
 ppd :
-	$(NOECHO) $(ECHO) '<SOFTPKG NAME="Statistics-Covid" VERSION="0.23">' > Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '<SOFTPKG NAME="Statistics-Covid" VERSION="0.24">' > Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '    <ABSTRACT>Fetch, store in DB, retrieve and analyse Covid-19 statistics from data providers</ABSTRACT>' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '    <AUTHOR>Andreas Hadjiprocopis &lt;bliako@cpan.org&gt; / &lt;andreashad2@gmail.com&gt;</AUTHOR>' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '    <IMPLEMENTATION>' >> Statistics-Covid.ppd
-	$(NOECHO) $(ECHO) '        <PERLCORE VERSION="5,006,0,0" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <PERLCORE VERSION="5,010000,0,0" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Algorithm::CurveFit" VERSION="1.0" />' >> Statistics-Covid.ppd
-	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Chart::Clicker" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Chart::Clicker" VERSION="2.90" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="DBD::SQLite" VERSION="1.60" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="DBI::" VERSION="1.60" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="DBIx::Class" VERSION="0.08" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Data::Dump" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Data::Dumper::AutoEncode" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Data::Roundtrip" VERSION="0.04" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Data::Undump" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="DateTime::" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="DateTime::Format::Strptime" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Encode::" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="File::Basename" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="File::Copy" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="File::Find" />' >> Statistics-Covid.ppd
@@ -783,12 +869,18 @@ ppd :
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="File::Temp" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Getopt::Long" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="HTTP::CookieJar::LWP" />' >> Statistics-Covid.ppd
-	$(NOECHO) $(ECHO) '        <REQUIRE NAME="JSON::Parse" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="HTTP::Headers" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="HTTP::Request" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="IO::Uncompress::Unzip" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="JSON::" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="LWP::UserAgent" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Locale::Country" VERSION="3.63" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Math::Symbolic" VERSION="0.6" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="SQL::Translator" VERSION="0.11019" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Storable::" />' >> Statistics-Covid.ppd
-	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Try::Tiny" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="Text::CSV_XS" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="WWW::Github::Files" />' >> Statistics-Covid.ppd
+	$(NOECHO) $(ECHO) '        <REQUIRE NAME="XML::Twig" VERSION="3.52" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <ARCHITECTURE NAME="x86_64-linux-thread-multi-5.28" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '        <CODEBASE HREF="" />' >> Statistics-Covid.ppd
 	$(NOECHO) $(ECHO) '    </IMPLEMENTATION>' >> Statistics-Covid.ppd
@@ -800,25 +892,37 @@ ppd :
 pm_to_blib : $(FIRST_MAKEFILE) $(TO_INST_PM)
 	$(NOECHO) $(ABSPERLRUN) -MExtUtils::Install -e 'pm_to_blib({@ARGV}, '\''$(INST_LIB)/auto'\'', q[$(PM_FILTER)], '\''$(PERM_DIR)'\'')' -- \
 	  'lib/Statistics/Covid.pm' '../blib/lib/Statistics/Covid.pm' \
+	  'lib/Statistics/Covid/Analysis/Model.pm' '../blib/lib/Statistics/Covid/Analysis/Model.pm' \
 	  'lib/Statistics/Covid/Analysis/Model/Simple.pm' '../blib/lib/Statistics/Covid/Analysis/Model/Simple.pm' \
 	  'lib/Statistics/Covid/Analysis/Plot/Simple.pm' '../blib/lib/Statistics/Covid/Analysis/Plot/Simple.pm' \
+	  'lib/Statistics/Covid/Cookbook.pm' '../blib/lib/Statistics/Covid/Cookbook.pm' \
 	  'lib/Statistics/Covid/DataProvider/Base.pm' '../blib/lib/Statistics/Covid/DataProvider/Base.pm' \
+	  'lib/Statistics/Covid/DataProvider/UK/1' '../blib/lib/Statistics/Covid/DataProvider/UK/1' \
 	  'lib/Statistics/Covid/DataProvider/UK/BBC.pm' '../blib/lib/Statistics/Covid/DataProvider/UK/BBC.pm' \
 	  'lib/Statistics/Covid/DataProvider/UK/GOVUK.pm' '../blib/lib/Statistics/Covid/DataProvider/UK/GOVUK.pm' \
+	  'lib/Statistics/Covid/DataProvider/UK/GOVUK2.pm' '../blib/lib/Statistics/Covid/DataProvider/UK/GOVUK2.pm' \
+	  'lib/Statistics/Covid/DataProvider/UK/index.html' '../blib/lib/Statistics/Covid/DataProvider/UK/index.html' \
 	  'lib/Statistics/Covid/DataProvider/World/JHU.pm' '../blib/lib/Statistics/Covid/DataProvider/World/JHU.pm' \
+	  'lib/Statistics/Covid/DataProvider/World/JHUgithub.pm' '../blib/lib/Statistics/Covid/DataProvider/World/JHUgithub.pm' \
+	  'lib/Statistics/Covid/DataProvider/World/JHUlocaldir.pm' '../blib/lib/Statistics/Covid/DataProvider/World/JHUlocaldir.pm' \
 	  'lib/Statistics/Covid/Datum.pm' '../blib/lib/Statistics/Covid/Datum.pm' \
 	  'lib/Statistics/Covid/Datum/IO.pm' '../blib/lib/Statistics/Covid/Datum/IO.pm' \
 	  'lib/Statistics/Covid/Datum/Table.pm' '../blib/lib/Statistics/Covid/Datum/Table.pm' \
+	  'lib/Statistics/Covid/Geographer.pm' '../blib/lib/Statistics/Covid/Geographer.pm' \
 	  'lib/Statistics/Covid/IO/Base.pm' '../blib/lib/Statistics/Covid/IO/Base.pm' \
 	  'lib/Statistics/Covid/IO/DualBase.pm' '../blib/lib/Statistics/Covid/IO/DualBase.pm' \
-	  'lib/Statistics/Covid/Migrator.pm' '../blib/lib/Statistics/Covid/Migrator.pm' \
 	  'lib/Statistics/Covid/Schema.pm' '../blib/lib/Statistics/Covid/Schema.pm' \
 	  'lib/Statistics/Covid/Schema/Result/Datum.pm' '../blib/lib/Statistics/Covid/Schema/Result/Datum.pm' \
 	  'lib/Statistics/Covid/Schema/Result/Version.pm' '../blib/lib/Statistics/Covid/Schema/Result/Version.pm' \
+	  'lib/Statistics/Covid/Schema/Result/WorldbankData.pm' '../blib/lib/Statistics/Covid/Schema/Result/WorldbankData.pm' \
 	  'lib/Statistics/Covid/Utils.pm' '../blib/lib/Statistics/Covid/Utils.pm' \
 	  'lib/Statistics/Covid/Version.pm' '../blib/lib/Statistics/Covid/Version.pm' \
 	  'lib/Statistics/Covid/Version/IO.pm' '../blib/lib/Statistics/Covid/Version/IO.pm' \
 	  'lib/Statistics/Covid/Version/Table.pm' '../blib/lib/Statistics/Covid/Version/Table.pm' 
+	$(NOECHO) $(ABSPERLRUN) -MExtUtils::Install -e 'pm_to_blib({@ARGV}, '\''$(INST_LIB)/auto'\'', q[$(PM_FILTER)], '\''$(PERM_DIR)'\'')' -- \
+	  'lib/Statistics/Covid/WorldbankData.pm' '../blib/lib/Statistics/Covid/WorldbankData.pm' \
+	  'lib/Statistics/Covid/WorldbankData/IO.pm' '../blib/lib/Statistics/Covid/WorldbankData/IO.pm' \
+	  'lib/Statistics/Covid/WorldbankData/Table.pm' '../blib/lib/Statistics/Covid/WorldbankData/Table.pm' 
 	$(NOECHO) $(TOUCH) pm_to_blib
 
 
