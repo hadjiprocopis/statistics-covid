@@ -1,8 +1,17 @@
 Revision history for Statistics-Covid
 
-
+0.24	2020xxx
+	1) added debugging statements to trace the error reported by
+	gregor herrmann(http://www.cpantesters.org/cpan/report/9b193e91-6bf5-1014-8029-9d0e769d6210)
+	and another one by Slaven Rezic(http://www.cpantesters.org/cpan/report/5e9b5676-7249-11ea-9f79-29611f24ea8f)
+	1) Followed some of Perl::Critic's recommendations.
+	2) Added script script/statistics-covid-plot-data-and-fit-model.pl
+	to create plots of data and fit models from the command line.
+	3) Added labels and fixed the color scheme in L<Statistics::Covid::Analysis::Plot::Simple>
+	4) Added more options to the configuration file relating to plotting and model fitting
+	4) Updated and added to Documentation.
 0.23	2020-03-30
-	1) Updated and added to Documentation
+	1) fixed a documentation issue which would have rendered examples faulty
 0.22	2020-03-30
 	1) Created L<Statistics::Covid::Analysis::Model::Simple> to fit data to models (polynomial, exponential)
 	2) Improved L<Statistics::Covid::Analysis::Plot::Simple> which plots data.
@@ -15,8 +24,7 @@ Revision history for Statistics-Covid
 	6) Added dependency C<'SQL::Translator' => '0.11019'>
 	7) Fixed some documentation
 0.21	2020-03-27
-	1) Added dependency to DBIx::Class in Makefile.PL
-	after alert from SREZIC (at cpan.org).
+	1) Added dependency to DBIx::Class in Makefile.PL after alert from SREZIC (at cpan.org).
 	2) Created L<Statistics::Covid::read_data_from_file()> and
 	L<Statistics::Covid::read_data_from_files()> as a high level
 	reading of local data files and converting to L<Statistics::Covid::Datum>

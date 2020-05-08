@@ -38,5 +38,33 @@
 			"RaiseError" : 1, # die on error
 			"PrintError" : 0  # do not print errors or warnings
 		}
+	},
+	# parameters akeen to analysis (plot, fit, etc.)
+	"analysis" : {
+		"plot" : {
+			# if dataset contains less than this, then dont plot it
+			"min-points" : "8",
+			# 2 factors for label placement:
+			# percentage (0-1) for avoiding margins
+			"labels-avoid-margins-factor" : "0.133",
+			# for avoiding other labels (not percentage)
+			"labels-avoid-other-labels-factor" : "30"
+		},
+		"fit" : {
+			# if dataset contains less than this, then dont fit it
+			# this is related to the number of coefficients
+			# for least squares polynomial regression
+			# n>=m+1 where n=datapoints, m=degree=max x power
+			# there is already a test for polynomial and exponential
+			# in Statistics::Covid::Analysis::Model::Simple
+			# this is for adhoc formulas or to make existing checks more
+			# strict (it will not relax them)
+			"min-points" : "3",
+			"max-iterations" : "10000",
+			"max-mean-error" : "10"
+		}
+	},
+	"worldbankdata": {
+		"datafiles-dir" : "t/t-data/worldbank-datasets"
 	}
 }

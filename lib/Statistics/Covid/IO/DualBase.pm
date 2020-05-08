@@ -1,10 +1,10 @@
 package Statistics::Covid::IO::DualBase;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use Data::Dump qw/pp/;
 
@@ -25,16 +25,6 @@ sub	newer_than {
 
 	return 0 # identical
 }
-sub	make_random_object {
-	srand $_[0] if defined $_[0];
-	die "you need to implement me";
-	#return $obj
-}
-sub	toString {
-	my $self = $_[0];
-	die "you need to implement me";
-}
-
 ###########
 #### This constructor must not change and every class inheriting from us
 #### must call it prior to doing their own 'constructor things'
@@ -48,13 +38,17 @@ sub	toString {
 # $params as an array which must have as many elements
 # as the 'db-columns' items and in the same order.
 sub	new {
-	my ($class, $dbschema, $params) = @_;
-	$params = {} unless defined $params;
+	my ($class, $dbschema, $colNameValuePairs, $otherparams) = @_;
+	$colNameValuePairs = {} unless defined $colNameValuePairs;
+	$otherparams = {} unless defined $otherparams;
 
 	my $parent = ( caller(1) )[3] || "N/A";
 	my $whoami = ( caller(0) )[3];
 
 	if( ! defined $dbschema ){ warn "error, dbschema parameter was not specified."; return undef }
+
+	my $fail_on_undef_value = exists($otherparams->{'fail-on-undefined-value'}) && defined($otherparams->{'fail-on-undefined-value'})
+			? $otherparams->{'fail-on-undefined-value'} : 1;
 
 	my $self = {
 		# our data goes here and that goes straight to DB
@@ -97,40 +91,52 @@ sub	new {
 	if( !exists($d->{'column-names-for-primary-key'}) || !defined($d->{'column-names-for-primary-key'}) ){ warn "error, 'column-names-for-primary-key' was not specified in the dbschema parameter."; return undef }
 
 	# populate our self with the data and set to default values (before checking input params)
-	for my $aname (@{$d->{'column-names'}}){
+	for (@{$d->{'column-names'}}){
 		# create the field in $self and set its default value
-		$c->{$aname} = $s->{$aname}->{'default_value'}
+		$c->{$_} = $s->{$_}->{'default_value'}
 	}
 	# now check input params for particular data values
-	if( ref($params) eq 'HASH' ){
+	# it is only considered if input param exists in the 'column-names' of the db-schema
+	if( ref($colNameValuePairs) eq 'HASH' ){
 		# input params is a HASHref, we are allowed to have as little data as possible,
 		# the rest will assume default values BUT those undef are illegal and must be filled as a minimum
 		foreach my $k (@{$d->{'column-names'}}){
-			if( exists $params->{$k} ){ $c->{$k} = $params->{$k} }
+			if( exists $colNameValuePairs->{$k} ){ $c->{$k} = $colNameValuePairs->{$k} }
 		}
-		if( exists $params->{'debug'} ){ $self->debug($params->{'debug'}) }
-	} elsif( ref($params) eq 'ARRAY' ){
+		if( exists $colNameValuePairs->{'debug'} ){ $self->debug($colNameValuePairs->{'debug'}) }
+	} elsif( ref($colNameValuePairs) eq 'ARRAY' ){
 		# input params is an ARRAYref, which is expected to have values FOR ALL DATA
 		# this is used for cloning or loading from DB
 		# IMPORTANT: order of the params array must be exactly the same as in the 'column-names' array
 		# which is keys of 'schema' sorted alphabetically {$a cmp $b}
-		if( @$params != $d->{'num-columns'} ){ warn "size of the array of parameters (".@$params.") is not the same as the size of our parameters (".$d->{'num-columns'}.")."; return undef }
+		if( @$colNameValuePairs != $d->{'num-columns'} ){ warn "size of the array of parameters (".@$colNameValuePairs.") is not the same as the size of our parameters (".$d->{'num-columns'}.")."; return undef }
 		my $i = 0;
-		foreach my $k (@{$d->{'column-names'}}){ $c->{$k} = $params->[$i++] }
+		foreach my $k (@{$d->{'column-names'}}){ $c->{$k} = $colNameValuePairs->[$i++] }
 	} else { warn "parameter can be a hashref or an arrayref with values"; return undef }
 
 	# TODO: automatically insert getters and setter subs for each column name in the schema
 
-	# now check if anything is left undef, this is an error
+	# now check if anything is left undef and complain
+	# we could replace it with default value (from schema) but complain cleans the data better
 	foreach my $k (@{$d->{'column-names'}}){
 		if( ! defined $c->{$k} ){
-			print STDERR pp($params)."\n\n$whoami (via $parent) : parameter '$k' was not specified or left undefined and that's not allowed, input data is above.\n";
-			return undef
+			if( ! exists($s->{$k}->{'default_value'}) ){
+				print STDERR pp($colNameValuePairs)."\n\n$whoami (via $parent) : parameter '$k' was not given a value or left undefined but the table schema does not specify a 'default_value', can not continue.\n";
+				return undef
+			}
+			if( $fail_on_undef_value == 1 ){ 
+				print STDERR pp($colNameValuePairs)."\n\n$whoami (via $parent) : parameter '$k' was not given a value or left undefined and that's not allowed, input data is above, use 'fail-on-undefined-value'=>0 to disable this check.\n";
+				return undef
+			}
+			# set the default value
+			$c->{$k} = $s->{$k}->{'default_value'};
 		}
 	}
 	return $self
 }
-sub	column_value {
+# returns the value for this field/attribute/column name
+# and it is compatible with DBIx::Class's Schema::Result
+sub	get_column {
 	my $self = $_[0];
 	my $column_name = $_[1];
 	if( ! $self->column_name_is_valid($column_name) ){ die "column name '$column_name' does not exist." }
@@ -147,8 +153,8 @@ sub	equals {
 	my $res;
 	my $c = $self->{'c'};
 	my $C = $another->{'c'};
-	for my $k (@{$self->column_names()}){
-		if( ($c->{$k} cmp $C->{$k}) != 0 ){ return 0 }
+	for (@{$self->column_names()}){
+		if( ($c->{$_} cmp $C->{$_}) != 0 ){ return 0 }
 	}
 	return 1 # equal!
 }
@@ -163,22 +169,26 @@ sub	equals_primary_key {
 	my $res;
 	my $c = $self->{'c'};
 	my $C = $another->{'c'};
-	return 0 if $self->{'p'}->{'db-specific'}->{'num-columns'} != $another->{'p'}->{'db-specific'}->{'num-columns'};
-	for my $k (@{$self->{'p'}->{'db-specific'}->{'column-names-for-primary-key'}}){
-		if( ($c->{$k} cmp $C->{$k}) != 0 ){ return 0 }
+	my $dbs = $self->_dbspecific();
+	return 0 if $dbs->{'num-columns'} != $another->_dbspecific()->{'num-columns'};
+	for (@{$dbs->{'column-names-for-primary-key'}}){
+		if( ($c->{$_} cmp $C->{$_}) != 0 ){ return 0 }
 	}
 	return 1 # equal!
 }
-# returns the values of PK columns joined with '|'
+# returns the values of PK columns joined with '-'
+# the separator should not be present in any db field.
+# I assume all databaes do not use '-' in their column names.
+# the choice of this character is important in saving later to a filename
+# it should be acceptable by the filesystem, if it is not then substitutions have
+# to be made prior to saving to disk. So '-' is a good choice I think.
 # this acts as a form of a PK but DB internally may hash this (with different separator)
 # but this will definetely be a unique primary key.
-sub	primary_key {
+sub	unique_id_based_on_primary_key {
 	my $self = $_[0];
 	my $c = $self->{'c'};
-	my $ret = "";
-	for my $k (@{$c->{'db-specific'}->{'column-names-for-primary-key'}}){
-		$ret .="|".$c->{$k}
-	}
+	my $dbs = $self->_dbspecific()->{'column-names-for-primary-key'};
+	my $ret = join '-', map { $c->{$_} } @$dbs;
 	return $ret # a primary key (this may not be exactly the same used in DB internally)
 }
 # check if the objects in the 2 input arrays of objects equal
@@ -188,22 +198,28 @@ sub	objects_equal {
 	my $N = scalar(@$array_of_datum_objs1);
 	return 0 if $N != scalar(@$array_of_datum_objs2);
 	for (0 .. $N-1){
+		if( ! $array_of_datum_objs1->[$_]->equals($array_of_datum_objs2->[$_]) ){
+			die "DIFFER: ".pp($array_of_datum_objs1->[$_]->toHashtable())."\n\nAND:\n\n".pp($array_of_datum_objs2->[$_]->toHashtable())."\n";
+		}
 		return 0 unless $array_of_datum_objs1->[$_]->equals($array_of_datum_objs2->[$_]);
 	}
 	return 1 # same in each and every way
 }
+sub	_dbspecific { return $_[0]->{'p'}->{'db-specific'} }
 sub	toArray {
 	my $self = $_[0];
 	my @ret = ();
 	my $c = $self->{'c'};
-	for my $k (@{$self->{'p'}->{'db-specific'}->{'column-names'}}){ push @ret, $c->{$k} }
+	my $dbc = $self->_dbspecific()->{'column-names'};
+	for (@$dbc){ push @ret, $c->{$_} }
 	return \@ret
 }
 sub	toHashtable {
 	my $self = $_[0];
 	my %ret = ();
 	my $c = $self->{'c'};
-	for my $k (@{$self->{'p'}->{'db-specific'}->{'column-names'}}){ $ret{$k} = $c->{$k} }
+	my $dbc = $self->_dbspecific()->{'column-names'};
+	for (@$dbc){ $ret{$_} = $c->{$_} }
 	return \%ret
 }
 sub	clone { return new($_[0]->toArray()) }
@@ -214,10 +230,48 @@ sub	debug {
 	$self->{'p'}->{'debug'} = $m;
 	return $m;
 }
-sub column_names_for_primary_key { return $_[0]->{'p'}->{'db-specific'}->{'column-names-for-primary-key'} }
-sub num_columns { return $_[0]->{'p'}->{'db-specific'}->{'num-columns'} }
-sub tablename { return $_[0]->{'p'}->{'db-specific'}->{'tablename'} }
-sub column_names { return $_[0]->{'p'}->{'db-specific'}->{'column-names'} }
+sub column_names_for_primary_key { return $_[0]->_dbspecific()->{'column-names-for-primary-key'} }
+sub num_columns { return $_[0]->_dbspecific()->{'num-columns'} }
+sub tablename { return $_[0]->_dbspecific()->{'tablename'} }
+sub column_names { return $_[0]->_dbspecific()->{'column-names'} }
+# these work but can be overwritten if you wish
+sub	make_random_object {
+	my $class = $_[0];
+	srand $_[1] if defined $_[1];
+
+	(my $file = $class) =~ s|::|/|g; $file .= '.pm';
+	my $rc = eval { require $file; 1 };
+	if( $@ || ! $rc ){ warn "failed to create random object of type '$class', because class failed to load: $@"; return undef }
+
+	my $s = do { no strict 'refs'; ${$class.'::Table::SCHEMA'} };
+	$s = $s->{'schema'};
+	my ($dtype, $sz);
+	my %objhash;
+	for my $colname (sort keys %$s){
+		$dtype = $s->{$colname}->{'data_type'};
+		if( $dtype eq 'varchar' ){
+			$sz = int($s->{$colname}->{'size'} / 10)+4;
+			$objhash{$colname} = join '', map { chr(ord('a')+int(rand(26))) } 1..$sz
+		} elsif( $dtype eq 'real' ){
+			$objhash{$colname} = int(rand(1000000))/100
+		} elsif( $dtype eq 'integer' ){
+			$objhash{$colname} = int(rand(1000000))
+		} else { die "make_random_object() : you need to implement me for colname='$colname' and data type '$dtype'" }
+	}
+	my $obj = $class->new(\%objhash);
+	if( ! defined $obj ){ warn pp(\%objhash)."\nerror, call to $class".'->new()'." has failed for the above parameters"; return undef }
+	return $obj
+}
+sub	toString {
+	my $self = $_[0];
+	my $ret = "";
+	my $c = $self->{'c'};
+	return join(
+		"\n",
+		map { $_ . " = " . $c->{$_} }
+			@{$self->column_names()}
+	)
+}
 1;
 __END__
 # end program, below is the POD

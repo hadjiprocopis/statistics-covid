@@ -1,10 +1,10 @@
 package Statistics::Covid::Version::Table;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 our $SCHEMA = {
   # specify your table and schema

@@ -1,0 +1,78 @@
+# comments are allowed, otherwise it is json
+# this file does not get eval'ed, it is parsed
+# only double quotes! and no excess commas
+{
+	# fileparams options
+	"fileparams" : {
+		# dir to store datafiles, each DataProvider class
+		# then has its own path to append
+		"datafiles-dir" : "data/files"
+	},
+	# database IO options
+	"dbparams" : {
+		# which DB to use: SQLite, MySQL (case sensitive)
+		"dbtype" : "SQLite",
+		# the name of DB
+		# in the case of SQLite, this is a filepath
+		# all non-existing dirs will be created (by module, not by DBI)
+		"dbdir" : "data/db",
+		"dbname" : "covid19.sqlite",
+		# how to handle duplicates in DB? (duplicate=have same PrimaryKey)
+		# only-better : replace records in DB if outdated (meaning number of markers is less, e.g. terminal or confirmed)
+		# replace     : force replace irrespective of markers
+		# ignore      : if there is a duplicate in DB DONT REPLACE/DONT INSERT
+		# (see also Statistics::Covid::Datum for up-to-date info)
+
+		"replace-existing-db-record" : "only-better",
+		#"replace-existing-db-record" : "ignore",
+
+		# username and password if needed
+		# unfortunately this is in plain text
+		# !!! WARNING: do not store your main DB password here or god forbid admin passwords !!!!
+		# perhaps create a new user or use SQLite
+		# there is no need for these when using SQLite
+		"hostname" : "", # must be a string (MySQL-related)
+		"port"     : "", # must be a string (MySQL-related)
+		"username" : "", # must be a string
+		"password" : "", # must be a string
+		# options to pass to DBI::connect
+		# see https://metacpan.org/pod/DBI for all options
+		"dbi-connect-params" : {
+			"RaiseError" : 1, # die on error
+			"PrintError" : 1  # do not print errors or warnings
+		}
+	},
+	# parameters akeen to analysis (plot, fit, etc.)
+	"analysis" : {
+		"plot" : {
+			# if dataset contains less than this, then dont plot it
+			"min-points" : "8",
+			# 2 factors for label placement:
+			# percentage (0-1) for avoiding margins
+			"labels-avoid-margins-factor" : "0.133",
+			# for avoiding other labels (not percentage)
+			"labels-avoid-other-labels-factor" : "30"
+		},
+		"fit" : {
+			# if dataset contains less than this, then dont fit it
+			# this is related to the number of coefficients
+			# for least squares polynomial regression
+			# n>=m+1 where n=datapoints, m=degree=max x power
+			# there is already a test for polynomial and exponential
+			# in Statistics::Covid::Analysis::Model::Simple
+			# this is for adhoc formulas or to make existing checks more
+			# strict (it will not relax them)
+			"min-points" : "3",
+			"max-iterations" : "10000",
+			"max-mean-error" : "10"
+		}
+	},
+	"worldbankdata": {
+		"datafiles-dir" : "data/worldbank-datasets"
+	},
+	"uk-local-authorities-geodata": {
+		"datafiles-dir" : "data/uk-local-authorities-data",
+		"districts-geojson-file": "Local_Authority_Districts_December_2017_Full_Clipped_Boundaries_in_Great_Britain.geojson",
+		"districts-coordinates-json-file": "Local_Authority_Districts_December_2017_Full_Clipped_Boundaries_in_Great_Britain.coordinates.json"
+	}
+}

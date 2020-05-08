@@ -3,7 +3,7 @@ package Statistics::Covid::Schema::Result::Datum;
 use strict;
 use warnings;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use base qw/DBIx::Class::Core/;
 
@@ -40,7 +40,7 @@ Statistics::Covid::Schema::Result::Datum - Datum is a table in our database of c
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 
 

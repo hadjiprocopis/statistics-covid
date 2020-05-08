@@ -1,0 +1,28 @@
+# how to migrate from older database format:
+# the BBC, GOVUK and JHU sites provide only daily data, so we need
+# to load that data from json files on disk:
+bin/db-load-data-from-fetched-data-files-v0.23-to-v0.24.bash 'UK::BBC' && \
+bin/db-load-data-from-fetched-data-files-v0.23-to-v0.24.bash 'UK::GOVUK' && \
+bin/db-load-data-from-fetched-data-files-v0.23-to-v0.24.bash 'World::JHU' && \
+bin/db-load-data-from-fetched-data-files-v0.23-to-v0.24.bash 'World::JHUgithub' && \
+bin/db-load-data-from-fetched-data-files-v0.23-to-v0.24.bash 'CY::UCY'
+
+# note: for CY::UCY there will be errors for older data files
+# so move these to somewhere can not be found by recursive find_files()B
+
+# for the localdir ones, tell them to load again (because we dont save
+# local files because already are there localfiles!)
+perl -I blib/lib script/statistics-covid-fetch-data-and-store.pl \
+ --config-file config/v0.24.1-config.json \
+ --provider 'World::JHUlocaldir' \
+ --provider-dir "./COVID-19"
+
+>>>> WARNING <<<<<
+Finally, copy the new database file
+to the old one and that's it!
+DO NOT DELETE the old dir or copy the new dir onto
+the old dir overwriting it. DONT DO THAT unless
+you want to loose all the old fetched data files too!
+SO, keep the old dir as it is except for the database which you should
+overwrite with the newly created.
+

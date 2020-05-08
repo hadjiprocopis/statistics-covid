@@ -1,18 +1,20 @@
 package Statistics::Covid::IO::Base;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
+
+binmode STDERR, ':encoding(UTF-8)';
+binmode STDOUT, ':encoding(UTF-8)';
 
 use Data::Dump qw/pp/;
 use Storable;
 use File::Copy;
 use File::Temp;
-use Try::Tiny;
 
 use Statistics::Covid::Utils;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 sub	new {
 	my (
@@ -45,7 +47,7 @@ sub	new {
 		'log-filename' => undef,
 
 		# internal variables, nothing to see here:
-		# what schema we are doing the IO for? 
+		# what schema we are doing the IO for?
 		# something like: 'Statistics::Covid::Schema' (as a string)
 		'schema-package-name' => undef,
 		# this is a string with the name of the package which acts as our dual
@@ -65,17 +67,19 @@ sub	new {
 	# we accept a debug level parameter>=0
 	if( exists $params->{'debug'} ){ $self->debug($params->{'debug'}) }
 
+	my $debug = $self->debug();
+
 	if( ! defined $schema_package_name ){ warn "error, you need to specify a schema package name as a string, like 'Statistics::Covid::Schema'."; return undef }
 	$self->{'schema-package-name'} = $schema_package_name;
 	if( ! defined $dual_package_name ){ warn "error, you need to specify a dual-object package name as a string, like 'Statistics::Covid::Datum'."; return undef }
 	$self->{'dual-package-name'} = $dual_package_name;
-	if( $self->debug() > 0 ){ warn "creating an IO object for inserting objects of type '$dual_package_name' into DB." }
+	if( $debug > 0 ){ warn "creating an IO object for inserting objects of type '$dual_package_name' into DB." }
 	{
 		no strict 'refs';
 		die "table schema package '".$dual_package_name.'::Table::SCHEMA'."' can not be found, does it exist?"
 			unless defined ${$dual_package_name.'::Table::SCHEMA'};
 		$self->{'dual-package-vars'} = Storable::dclone(${$dual_package_name.'::Table::SCHEMA'});
-		if( $self->debug() > 0 ){ warn "loaded the table schema from ".$dual_package_name.'::Table::SCHEMA'."\n" }
+		if( $debug > 0 ){ warn "loaded the table schema from ".$dual_package_name.'::Table::SCHEMA'."\n" }
 	}
 
 	# declare a log file to be used for db operations, you must additionally set debug>0
@@ -116,7 +120,7 @@ sub	db_create_backup_file {
 	my $self = $_[0];
 	# optional output file, or default
 	my $outfile = defined($_[1]) ? $_[1] : Statistics::Covid::Utils::make_timestamped_string() . '.bak';
-	
+
 	my $dbparams = $self->dbparams();
 	if( $dbparams->{'dbtype'} eq 'SQLite' ){
 		my $current_db_file = "";
@@ -209,12 +213,19 @@ sub	config {
 	my ($self, $m) = @_;
 	return $self->{'config-hash'} unless defined $m;
 
+	my $debug = $self->debug();
+
 	if( ! exists($m->{'dbparams'}) || ! defined($m->{'dbparams'}) ){ warn pp($m)."\n\neerror, no 'dbparams' section exists in configuration (dumped above)."; return undef }
 	if( ! exists($m->{'fileparams'}) || ! defined($m->{'fileparams'}) ){ warn pp($m)."\n\nerror, no 'fileparams' section exists in configuration (dumped above)."; return undef }
 
-	$self->{'config-hash'} = $m;
+	$self->{'config-hash'} = Storable::dclone($m);
 
-	my $dbparams = $self->{'config-hash'}->{'dbparams'};
+	my $dbparams = $m->{'dbparams'};
+
+	# do we have dbi-connect-params or shall we use defaults?
+	if( ! exists($dbparams->{'dbi-connect-params'}) || ! defined($dbparams->{'dbi-connect-params'}) ){
+		$dbparams->{'dbi-connect-params'} = {RaiseError => 1, PrintError => 0}
+	}
 	if( $dbparams->{'dbtype'} eq 'SQLite' ){
 		# in SQLite we have an optional path before the db-filename, using unix-pathsep
 		if( exists $dbparams->{'dbdir'} and defined $dbparams->{'dbdir'} and $dbparams->{'dbdir'} ne '' ){
@@ -230,6 +241,7 @@ sub	config {
 		if( ! Statistics::Covid::Utils::make_path($fileparams->{'datafiles-dir'}) ){ warn "error, failed to create data dir '".$fileparams->{'datafiles-dir'}."'."; return 0 }
 		if( $self->debug() > 0 ){ warn "checked and/or made dir for data files '".$fileparams->{'datafiles-dir'}."'." }
 	}
+	if( $debug > 0 ){ warn pp($self->{'config-hash'})."\nset config as above" }
 	return 1 # success
 }
 # make a dsn for connecting to DB
@@ -237,49 +249,79 @@ sub	config {
 # returns the dsn string on success or undef on failure
 sub     db_make_dsn {
 	my $self = $_[0];
-	my $dbparams = $self->dbparams();
-	my $dsn = undef;
-	if( $dbparams->{'dbtype'} eq 'SQLite' ){
-		$dsn = 'dbi:SQLite:dbname=';
-		if( exists $dbparams->{'dbdir'} and defined $dbparams->{'dbdir'} and $dbparams->{'dbdir'} ne '' ){
-			$dsn .= $dbparams->{'dbdir'}.'/'
-		}
-		$dsn .= $dbparams->{'dbname'};
-	} elsif( $dbparams->{'dbtype'} eq 'MySQL' ){
-		$dsn = "DBI:mysql:database=".$dbparams->{'dbname'}.";host=".$dbparams->{'hostname'}.";port=".$dbparams->{'port'};
-	} else { warn "don't know this dbtype '".$dbparams->{'dbtype'}."'."; return 0 }
+	my $dsn = Statistics::Covid::Utils::db_make_dsn({'config-hash'=>$self->config()});
+	if( ! defined $dsn ){ warn "error, call to ".'Statistics::Covid::Utils::db_make_dsn()'." has failed"; return undef }
 	return $dsn;
 }
 sub	db_is_connected { return defined $_[0]->schemah() }
+# creates or re-creates the table we are associated with
+# if 'drop-table' is added in the input params, then if table exists it will be erased
+# with all its data and the new table will be created
+# there is no use for external use unless you want to recreate the database because
+# of a table schema change.
+# if it is not connected already it connects to db
+# at the end if successful it attempts to re-connect to db
+# WARNING: before using this sub
+#  !!!!! make a backup first L<Statistics::Covid::IO::Base::db_create_backup_file>
+sub	db_deploy {
+	my $self = $_[0];
+	my $params = $_[1]; # optional params hash
+
+	my $debug = $self->debug();
+
+	my $drop_table_first = 0;
+	if( defined $params ){
+		if( exists($params->{'drop-table'}) && defined($params->{'drop-table'}) ){
+			$drop_table_first = $params->{'drop-table'}
+		}
+	}
+
+	if( ! $self->db_is_connected() ){ if( ! $self->db_connect() ){ warn "error, failed to connect to db"; return 0 } }
+
+	my $dbparams = $self->dbparams();
+	if( $debug > 0 ){ if( $drop_table_first>0 ){ warn "dropping existing table if exists ..." } warn "creating table '".$self->dual_package_vars()->{'tablename'}."' ..." }
+	my $rc = eval { $dbparams->{'schemah'}->deploy({ add_drop_table => $drop_table_first }); 1 };
+	if( $@ || ! $rc ){ warn "error, call to deploy() has failed for table '".$self->dual_package_vars()->{'tablename'}."'"; return 0 }
+	$self->db_disconnect();
+	# db_connect() automatically and by default
+	# will try to deploy and a deep recursion will ensue, so deploy=0 explicitly
+	if( ! $self->db_connect({'deploy'=>0}) ){ warn "error, failed to re-connect to database"; return 0 }
+	return 1 # success and we are db-connected
+}
 # connect to db
 # input is a hash of params, including 'dbname' and 'dbtype' (also password, hostname, port if necessary)
 # returns the connection handle on success or undef on failure
 # caller must disconnect from db ($dbh->disconnect()) when finished with it.
+# if called while a connection SEEMS to be valid, that connection is returned and nothing else happens
+# if you want to force a new connection then disconnect first.
 sub     db_connect {
 	my $self = $_[0];
-	my $force_disconnect_first = defined $_[1] ? $_[1] : 0;
+	my $params = $_[1]; # optional params hash
+
+	#if( defined $params ){
+	#	if( exists($params->{'disconnect-first'}) && defined($params->{'disconnect-first'}) ){
+	#		$force_disconnect_first = $params->{'disconnect-first'}
+	#	}
+	#}
 
 	my $dbparams = $self->dbparams();
 
 	my $debug = $self->debug();
 
-	if( $force_disconnect_first && $self->db_is_connected() ){ $self->db_disconnect() }
+	if( $self->db_is_connected() ){ return $dbparams->{'schemah'} }
 
 	my $dsn = $self->db_make_dsn($dbparams);
 	if( ! defined $dsn ){ warn "call to ".'db_make_dsn()'." has failed."; return undef }
-	# our default dbi params for connecting, if some are specified via our db-params set
-	# by the config during construction, then merge them into our defaults,
-	# the latter keys will overwrite the former in the params hash
-	my $dbiparams = {RaiseError => 1, PrintError => 0};
-	if( exists $dbparams->{'connect-params'} and defined $dbparams->{'connect-params'} ){ $dbiparams = {%$dbiparams, %{$dbparams->{'connect-params'}}} }
+
 	my $schemaHandle;
-	Try::Tiny::try {
-		$schemaHandle = Statistics::Covid::Schema->connect($dsn, "", "", $dbparams);
-	};
-	if( $_ or ! defined($schemaHandle) or $schemaHandle->storage==1 ){ warn 'Statistics::Covid::Schema->connect('.$dsn.') has failed, $_'; return undef }
+	$schemaHandle = eval { Statistics::Covid::Schema->connect($dsn, "", "", $dbparams->{'dbi-connect-params'}) };
+	if( $@ or ! defined($schemaHandle) or $schemaHandle->storage==1 ){ warn pp($dbparams->{'dbi-connect-params'})."\n".'Statistics::Covid::Schema->connect('.$dsn.') has failed for above parameters: $@'; return undef }
 	$dbparams->{'schemah'} = $schemaHandle;
 
-	$schemaHandle->storage->debug($debug);
+	if( $debug > 1 ){
+		$schemaHandle->storage->debug($debug);
+		warn "DBIx::Class : debug ON (level $debug)."
+	}
 	my $m = $self->logfilename();
 	if( $m ){
 		# this will close existing log handle and open the new one
@@ -288,20 +330,26 @@ sub     db_connect {
 		if( 0 == _init_log_file($schemaHandle, $m) ){ warn "call to ".'_init_log_file()'." has failed for file '$m'."; return undef }
 		if( $debug > 0 ){ warn "logging to file '$m'." }
 	}
-	if( 0 == $self->is_deployed() ){
+	# optionally deploy, default is yes unless input params say otherwise
+	if( (exists($params->{'deploy'})
+	     && defined($params->{'deploy'})
+	     && ($params->{'deploy'}>0)
+	    ) || (
+	   ! exists($params->{'deploy'}) || ! defined($params->{'deploy'})
+	   )
+	   && (0 == $self->db_is_deployed())
+	){
 		# the table does not exist => we deploy the db (and that's that!)
 		if( $debug > 0 ){ warn "creating table '".$self->dual_package_vars()->{'tablename'}."'..." }
-		Try::Tiny::try {
-			$dbparams->{'schemah'}->deploy()
-		};
-		if( $_ ){ warn "error, call to deploy() has failed for this dsn '$dsn'."; return undef }
+		if( ! $self->db_deploy() ){ warn "error, call to ".'db_deploy()'." has failed"; return undef }
 	}
-	if( $debug > 0 ){ warn "db_connect() : connected to '$dsn'." }
+	if( $debug > 0 ){ warn pp($dbparams->{'dbi-connect-params'})."\nConnected to database using dsn='$dsn' and DBI connection parameters as above" }
+	$dbparams->{'dsn'} = $dsn;
 	return $schemaHandle
 }
 # returns true if db is deployed (created)
 # must already be connect to db
-sub	is_deployed {
+sub	db_is_deployed {
 	my $self = $_[0];
 	if( ! $self->db_is_connected() ){ warn "error, not connected to any database."; return -1 }
 
@@ -331,7 +379,7 @@ sub	db_delete_rows {
 	$params = {} unless $params;
 	# params optionally contains 'conditions' something like:
 #  my $rs = $schema->resultset('Album')->search({
-#    title   => 'abc' 
+#    title   => 'abc'
 # or
 #    title   => {-like     => 'foo', -not_like => 'bar' }
 # and
@@ -363,7 +411,7 @@ sub	db_delete_rows {
 	my $searcher = $RS->search($conditions, $attributes);
 	if( $debug > 0 ){ warn "deleting all rows found with ".${$searcher->as_query()}->[0]."\n" }
 	my $num_to_delete = $searcher->count;
-	$searcher->delete_all();
+	$searcher->delete_all() if $num_to_delete>0;
 	return $num_to_delete
 }
 # Inserts a lot of Objects into DB (first parameter is an array)
@@ -376,10 +424,14 @@ sub	db_delete_rows {
 sub	db_insert_bulk {
 	my $self = $_[0];
 	my $arrayOfobjToInsert = $_[1]; # arrayref with object(s) to insert
+	# optional, else we look into config hash, or default below
+	my $replace_strategy = $_[2];
 
 	if( ! $self->db_is_connected() ){ warn "error, not connected to any database."; return undef }
 
 	my $debug = $self->debug();
+
+	if( ($debug > 0) && defined($replace_strategy) ){ print STDOUT "db_insert_bulk() : overwriting replace strategy with this: '$replace_strategy' ...\n" }
 
 	my $ret = 1;
 	my $num_failed = 0;
@@ -389,17 +441,17 @@ sub	db_insert_bulk {
 	my $num_not_replaced_because_ignore_was_set = 0;
 
 	# first of all remove those objs which are duplicates
-	my %objs_by_pk = ();
-	my ($anobj, $anotherobj, $pk);
+	my %objs_by_uidpk = ();
 	my $hasduplicates = 0;
-	for $anobj (@$arrayOfobjToInsert){
-		$pk = $anobj->primary_key();
-		if( exists $objs_by_pk{$pk} ){
-			$anotherobj = $objs_by_pk{$pk};
-			if( $debug > 0 ){ warn "found duplicate records within the array of objects to return:\n".$anotherobj->toString()."\nand\n".$anobj->toString()."\n" }
+	my ($uidpk, $anotherobj);
+	for my $anobj (@$arrayOfobjToInsert){
+		$uidpk = $anobj->unique_id_based_on_primary_key();
+		if( exists $objs_by_uidpk{$uidpk} ){
+			$anotherobj = $objs_by_uidpk{$uidpk};
+			if( $debug > 0 ){ warn "warning, found duplicate records within the array of objects to return with common uidpk=\n  $uidpk\nThe newer will be inserted in DB (now no action will be taken)\n   ".$anotherobj->toString()."\nand\n   ".$anobj->toString() }
 			$hasduplicates++;
-			if( $anobj->newer_than($anotherobj) == 1 ){ $objs_by_pk{$pk} = $anobj }
-		} else { $objs_by_pk{$pk} = $anobj }
+			if( $anobj->newer_than($anotherobj) == 1 ){ $objs_by_uidpk{$uidpk} = $anobj }
+		} else { $objs_by_uidpk{$uidpk} = $anobj }
 	}
 	if( ($debug>0) && $hasduplicates ){ warn "found $hasduplicates duplicates among the objects in the input array specified." }
 	# now our hash contains non-duplicates, and so we insert it
@@ -410,7 +462,7 @@ sub	db_insert_bulk {
 
 	my $numobjs = scalar(@$arrayOfobjToInsert);
 	for my $anobj (@$arrayOfobjToInsert){
-		$ret = $self->db_insert($anobj);
+		$ret = $self->db_insert($anobj, $replace_strategy);
 		# see also db_insert() return codes
 		if( $ret == 0 ){
 			# failed to insert, db problem
@@ -443,6 +495,7 @@ sub	db_insert_bulk {
 		'num-replaced' => $num_replaced,
 		'num-not-replaced-because-better-exists' => $num_not_replaced_because_better_exists,
 		'num-not-replaced-because-ignore-was-set' => $num_not_replaced_because_ignore_was_set,
+		'num-duplicates-in-input' => $hasduplicates
 	}
 }
 # Inserts one object into DB (first and only input parameter)
@@ -460,6 +513,8 @@ sub	db_insert_bulk {
 sub	db_insert {
 	my $self = $_[0];
 	my $objToInsert = $_[1];
+	# optional, else we look into config hash, or default below
+	my $replace_strategy = $_[2];
 
 	if( ! $self->db_is_connected() ){ warn "error, not connected to any database."; return 0 }
 
@@ -467,61 +522,80 @@ sub	db_insert {
 
 	my $dbparams = $self->dbparams();
 
-	my $replace_strategy = 'ignore';
-	if( exists $dbparams->{'replace-existing-db-record'} and defined($dbparams->{'replace-existing-db-record'}) ){
-		$replace_strategy = $dbparams->{'replace-existing-db-record'};
-		if( $debug > 0 ){ warn "setting replace strategy to '".$dbparams->{'replace-existing-db-record'}."'." }
+	if( ! defined $replace_strategy ){
+		$replace_strategy = 'ignore';
+		if( exists $dbparams->{'replace-existing-db-record'} and defined($dbparams->{'replace-existing-db-record'}) ){
+			$replace_strategy = $dbparams->{'replace-existing-db-record'};
+			if( $debug > 1 ){ warn "setting replace strategy to '".$dbparams->{'replace-existing-db-record'}."'." }
+		}
 	}
+
+	##################################
+	# this is how to print db row obj
+	#Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())
+	##################################
+
 	my $resultset = $dbparams->{'schemah'}->resultset($self->dual_package_vars()->{'tablename'});
 	if( ! defined $resultset ){ warn "error, failed to create a resultset object."; return 0 }
 	my $ret = -1;
-	my $existingObj = undef;
+	my ($rc, $existingObj);
 	if( $replace_strategy eq 'replace' ){
 		# updates if duplicate exists or creates a new one which we must insert() manually
-		my $existingObj = $resultset->update_or_new($objToInsert->toHashtable());
+		my $existingObj = eval { $resultset->update_or_new($objToInsert->toHashtable()) };
+		if( $@ ){ warn "error, call to ".'update_or_new()'." has failed with this exception: $@"; $ret=0; goto RET }
 		if( $existingObj->in_storage ){
 			# in db and updated (forcibly)
+			if( $debug > 1 ){ if( $debug > 2 ){ warn "in DB:\n".pp($existingObj->toHashtable())."in memory:\n".pp($objToInsert->toHashtable()) } warn "duplicate record exists and forcibly updated with in-memory (replace_strategy=$replace_strategy)."; }
 			$ret = 2;
-			if( $debug > 0 ){ if( $debug > 1 ){ warn "in DB:\n".$existingObj->toString()."in memory:\n".$objToInsert->toString() } warn "duplicate record exists and forcibly updated with in-memory (replace_strategy=$replace_strategy)."; }
 		} else {
 			# nothing like it exists in db
+			$rc = eval { $existingObj->insert(); 1; };
+			if( $@ || ! $rc ){ warn pp($objToInsert->toHashtable())."\ninsert() error for above data."; $ret=0; goto RET }
+			if( $debug > 1 ){ warn "record inserted, no duplicate found (1) (replace_strategy=$replace_strategy)."; }
 			$ret = 1;
-			$existingObj->insert();
-			if( $debug > 0 ){ warn "record inserted, no duplicate found (1) (replace_strategy=$replace_strategy)."; }
 		}
 	} elsif( $replace_strategy eq 'only-better' ){
 		# if it exists in DB, examine it and check if its markers are same or better than us
 		# in which case we do not update
-		my $existingObj = $resultset->find_or_new($objToInsert->toHashtable());		
+		my $existingObj = eval { $resultset->find_or_new($objToInsert->toHashtable()) };
+		if( $@ ){ warn "error, call to ".'find_or_new()'." (1) has failed with this exception: $@"; $ret=0; goto RET }
+		
 		if( $existingObj->in_storage ){
 			# it exists in db, let's compare markers
 			if( 1 == $objToInsert->newer_than($existingObj) ){
 				# our memory obj is bigger than one in DB we need to insert it
-				$existingObj->update();
+				$rc = eval { $existingObj->update(); 1; };
+				if( $@ || ! $rc ){ warn pp($objToInsert->toHashtable())."\nupdate() error for above data."; $ret=0; goto RET }
+				if( $debug > 1 ){ if( $debug > 2 ){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".pp($objToInsert->toHashtable()) } warn "duplicate record exists but is not-up-to-date compared to that in-memory, so it was updated (replace_strategy=$replace_strategy)."; }
 				$ret = 2;
-				if( $debug > 0 ){ if($debug>1){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".$objToInsert->toString() } warn "\nduplicate exists but is not-up-to-date than in-memory, so it was updated (replace_strategy=$replace_strategy)."; }
 			} else {
+				if( $debug > 1 ){ if( $debug > 2 ){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".pp($objToInsert->toHashtable()) } warn "duplicate exists but is up-to-date, so it was not updated (replace_strategy=$replace_strategy)."; }
 				$ret = 3; # not inserted in db because existing is better
-				if( $debug > 0 ){ if($debug>1){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".$objToInsert->toString() } warn "duplicate exists but is up-to-date, so it was not updated (replace_strategy=$replace_strategy)."; }
 			}
 		} else {
 			# nothing like it exists in db
+			# uncomment this to tackle DB warnings
+			#local $SIG{__WARN__} = sub { print pp($objToInsert->toHashtable())."\n"; die "DDDDDDDDDD: ".$_[0]};
+			$rc = eval { $existingObj->insert(); 1; };
+			if( $@ || ! $rc ){ warn pp($objToInsert->toHashtable())."\ninsert() error for above data."; $ret=0; goto RET }
+			if( $debug > 1 ){ warn "record inserted, no duplicate found (2) (replace_strategy=$replace_strategy)."; }
 			$ret = 1;
-			$existingObj->insert();
-			if( $debug > 0 ){ warn "record inserted, no duplicate found (2) (replace_strategy=$replace_strategy)."; }
 		}
-	} else { # this is $replace_strategy eq 'ignore' 
+	} else { # this is $replace_strategy eq 'ignore'
 		my $existingObj = $resultset->find_or_new($objToInsert->toHashtable());
+		if( $@ ){ warn "error, call to ".'find_or_new()'." (2) has failed with this exception: $@"; $ret=0; goto RET }
 		if( $existingObj->in_storage ){
 			# it exists in db, we don't re-insert
 			$ret = 4;
-			if( $debug > 0 ){ if( $debug > 1 ){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".$objToInsert->toString() } warn "duplicate found, nothing was compared, nothing was inserted (replace_strategy=$replace_strategy)."; }
+			if( $debug > 1 ){ if( $debug > 2 ){ warn "in DB:\n".Statistics::Covid::Utils::dbixrow2string($existingObj->get_columns())."in memory:\n".pp($objToInsert->toHashtable()) } warn "duplicate found, nothing was compared, nothing was inserted (replace_strategy=$replace_strategy)."; }
 		} else {
-			$existingObj->insert();
+			$rc = eval { $existingObj->insert(); 1; };
+			if( $@ || ! $rc ){ warn pp($objToInsert->toHashtable())."\ninsert() error for above data."; $ret=0; goto RET }
+			if( $debug > 1 ){ warn "record inserted, no duplicate found (3) (replace_strategy=$replace_strategy)."; }
 			$ret = 1;
-			if( $debug > 0 ){ warn "record inserted, no duplicate found (3) (replace_strategy=$replace_strategy)."; }
 		}
 	}
+RET:
 	die "why ret==-1?" if $ret == -1;
 	return $ret
 }
@@ -538,7 +612,7 @@ sub	db_count {
 	$params = {} unless $params;
 	# params optionally contains 'conditions' something like:
 #  my $rs = $schema->resultset('Album')->search({
-#    title   => 'abc' 
+#    title   => 'abc'
 # or
 #    title   => {-like     => 'foo', -not_like => 'bar' }
 # and
@@ -568,7 +642,7 @@ sub	db_count {
 	if( ! defined $RS ){ warn "error, failed to create a resultset object."; return -1 }
 
 	my $searcher = $RS->search($conditions, $attributes);
-	if( $debug > 0 ){ warn "searching with ".${$searcher->as_query()}->[0]."\n" }
+	if( $debug > 1 ){ warn "searching with ".${$searcher->as_query()}->[0]."\n" }
 	return $searcher->count # success but can be zero!
 }
 # find records given optional conditions (where statements)
@@ -585,7 +659,7 @@ sub	db_select {
 	$params = {} unless $params;
 	# params optionally contains 'conditions' something like:
 #  my $rs = $schema->resultset('Album')->search({
-#    title   => 'abc' 
+#    title   => 'abc'
 # or
 #    title   => {-like     => 'foo', -not_like => 'bar' }
 # and
@@ -615,10 +689,13 @@ sub	db_select {
 	if( ! defined $RS ){ warn "error, failed to create a resultset object."; return undef }
 
 	my $searcher = $RS->search($conditions, $attributes);
-	if( $debug > 0 ){ warn "searching with ".${$searcher->as_query()}->[0]."\n" }
+	if( $debug > 1 ){ warn "searching with ".${$searcher->as_query()}->[0]."\n" }
 	my @results;
 	my $dual_package_name = $self->dual_package_name();
-	while( my $arow = $searcher->next ){
+	while( 1 ){
+		my $arow = eval { $searcher->next };
+		if( $@ ){ warn "error, search failed for this dsn '".$dbparams->{'dsn'}."' with this exception:\n".$@; return undef }
+		if( ! defined $arow ){ last }
 		my $objparams = {$arow->get_columns()};
 		if( $debug > 2 ){ warn "creating an object of type '$dual_package_name'..." }
 		my $datumobj = $dual_package_name->new($objparams);
@@ -634,15 +711,16 @@ sub	db_disconnect {
 	my $dbparams = $self->dbparams();
 	if( $self->db_is_connected() ){
 		$dbparams->{'schemah'}->storage()->disconnect();
-		$dbparams->{'schemah'} = undef;
 		my $m = $self->logfilename();
 		my $debug = $self->debug();
 		if( $m ){
-			$dbparams->{'shemah'}->storage()->debugfh(undef); # I guess that closes it
+			$dbparams->{'schemah'}->storage()->debugfh(undef); # I guess that closes it
 			if( $debug > 0 ){ warn "stopped logging to file '$m'." }
 		}
 		if( $debug > 0 ){ warn "db_disconnect() : disconnected from DB." }
 	}
+	$dbparams->{'schemah'} = undef;
+	$dbparams->{'dsn'} = undef;
 	return 1
 }
 # return an arrayref of all table names in the db we are connected to
@@ -686,12 +764,11 @@ sub	db_get_schema {
 	# default is to use our own dbtype as found in the loaded config during construction
 	my $dbtypes = exists($params->{'dbtypes'}) ? $params->{'dbtypes'} : [$self->dbparams()->{'dbtype'}];
 
+	my $rc;
 	# i assume it throws exception
 	for my $adbtype (@$dbtypes){
-		Try::Tiny::try {
-			$self->schemah()->create_ddl_dir([$adbtype], $VERSION, $outdir);
-		};
-		if( $_ ){ warn "error, call to create_ddl_dir() has failed for db type '$adbtype', $_"; return undef }
+		$rc = eval { $self->schemah()->create_ddl_dir([$adbtype], $VERSION, $outdir); 1 };
+		if( $@ || ! $rc ){ warn "error, call to create_ddl_dir() has failed for db type '$adbtype', $@"; return undef }
 		if( $debug > 0 ){ warn "dumped schemata for '$adbtype' to '$outdir'" }
 	}
 
@@ -721,4 +798,27 @@ sub	db_get_schema {
 	# if used a tmp outdir, it is erased on out-scope
 	return \%ret
 }
+# TODO
+# there are now migration scripts, this is not needed or could be part of a high-level api
+sub	db_migrate_from_different_database {
+	my $self = $_[0];
+	my $params = $_[1];
+
+	my $other_confighash;
+	if( exists($params->{'other-config-hash'}) && defined($params->{'other-config-hash'}) ){
+		$other_confighash = $params->{'other-config-hash'};
+	} elsif( exists($params->{'other-config-file'}) && defined($params->{'other-config-file'}) ){
+		my $configfile = $params->{'other-config-file'};
+		if( ! defined($other_confighash=Statistics::Covid::Utils::configfile2perl($configfile)) ){ warn "error, failed to read and/or parse configuration file '$configfile'"; goto FAIL }
+	} else { warn "error, either 'other-config-file' or 'other-config-hash' must be specified"; return undef }
+
+	my $other_dbh = Statistics::Covid::Utils::db_connect_using_dbi({'config-hash'=>$other_confighash});
+	if( ! defined $other_dbh ){ warn pp($other_confighash)."\nerror, call to ".'Statistics::Covid::Utils::db_connect_using_dbi()'." has failed for above configuration"; return undef }
+
+
+FAIL:
+	if( defined $other_dbh ){ $other_dbh->disconnect() }
+	return undef # failed
+}
+
 1;

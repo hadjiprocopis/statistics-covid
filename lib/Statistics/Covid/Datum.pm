@@ -1,6 +1,6 @@
 package Statistics::Covid::Datum;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
@@ -12,7 +12,9 @@ use Statistics::Covid::Datum::Table;
 
 use DateTime;
 
-our $VERSION = '0.23';
+use Data::Dump qw/pp/;
+
+our $VERSION = '0.24';
 
 # our constructor which calls parent constructor first and then does
 # things specific to us, like dates
@@ -20,13 +22,18 @@ our $VERSION = '0.23';
 # of name=>value or as an array which must have as many elements
 # as the 'db-columns' items and in this order.
 sub	new {
-	my ($class, $params) = @_;
-	$params = {} unless defined $params;
+	my ($class, $colNameValuePairs, $otherparams) = @_;
+	$colNameValuePairs = {} unless defined $colNameValuePairs;
+	$otherparams = {} unless defined $otherparams;
 
 	my $parent = ( caller(1) )[3] || "N/A";
 	my $whoami = ( caller(0) )[3];
 
-	my $self = $class->SUPER::new($Statistics::Covid::Datum::Table::SCHEMA, $params);
+	my $self = $class->SUPER::new(
+		$Statistics::Covid::Datum::Table::SCHEMA,
+		$colNameValuePairs,
+		$otherparams
+	);
 	if( ! defined $self ){ warn "error, call to $class->new() has failed."; return undef }
 
 	# add some more fields to our self
@@ -43,26 +50,27 @@ sub	new {
 	my $c = $self->{'c'}; # content fields as they go to DB
 	my $p = $self->{'p'}; # private fields
 	# now check input params for particular data values
-	if( ref($params) eq 'HASH' ){
-		# this will update all date fields given just any one of them
-		if( exists $params->{'datetime-obj'} and defined $params->{'datetime-obj'} ){
-			if( ! $self->date($params->{'datetime-obj'}) ){ warn "error, setting the date from a DateTime object (".$params->{'datetime-obj'}.") has failed."; return undef }
-		} elsif( exists $params->{'datetimeISO8601'} and defined $params->{'datetimeISO8601'} ){
-			if( ! $self->date($params->{'datetimeISO8601'}) ){ warn "error, setting the date from an ISO8601 string (".$params->{'datetimeISO8601'}.") has failed."; return undef }
-		} elsif( exists $params->{'datetimeUnixEpoch'} and defined $params->{'datetimeUnixEpoch'} ){
-			if( ! $self->date($params->{'datetimeUnixEpoch'}) ){ warn "error, setting the date from a unix-epoch seconds (".$params->{'datetimeUnixEpoch'}.") has failed."; return undef }
-		} elsif( exists $params->{'date'} and defined $params->{'date'} ){
-			if( ! $self->date($params->{'date'}) ){ warn "error, setting the date from date spec (".$params->{'date'}.") has failed."; return undef }
+	if( ref($colNameValuePairs) eq 'HASH' ){
+		# this will update all date fields given just any one of them (set the priority in the if)
+		if( exists $colNameValuePairs->{'datetimeUnixEpoch'} and defined $colNameValuePairs->{'datetimeUnixEpoch'} ){
+			if( ! $self->date($colNameValuePairs->{'datetimeUnixEpoch'}) ){ warn "error, setting the date from a unix-epoch seconds (".$colNameValuePairs->{'datetimeUnixEpoch'}.") has failed."; return undef }
+		} elsif( exists $colNameValuePairs->{'datetimeISO8601'} and defined $colNameValuePairs->{'datetimeISO8601'} ){
+			if( ! $self->date($colNameValuePairs->{'datetimeISO8601'}) ){ warn "error, setting the date from an ISO8601 string (".$colNameValuePairs->{'datetimeISO8601'}.") has failed."; return undef }
+		} elsif( exists $colNameValuePairs->{'datetime-obj'} and defined $colNameValuePairs->{'datetime-obj'} ){
+			if( ! $self->date($colNameValuePairs->{'datetime-obj'}) ){ warn "error, setting the date from a DateTime object (".$colNameValuePairs->{'datetime-obj'}.") has failed."; return undef }
+		} elsif( exists $colNameValuePairs->{'date'} and defined $colNameValuePairs->{'date'} ){
+			if( ! $self->date($colNameValuePairs->{'date'}) ){ warn "error, setting the date from date spec (".$colNameValuePairs->{'date'}.") has failed."; return undef }
 		} else { warn "error, no 'date', 'datetime-obj', 'datetimeISO8601' or 'datetimeUnixEpoch' was specified, one must be specified (ISO8601, unix-epoch-seconds or DateTime object are all accepted)."; return undef }
-	} elsif( ref($params) eq 'ARRAY' ){
+	} elsif( ref($colNameValuePairs) eq 'ARRAY' ){
+		die pp($colNameValuePairs)."\nthis needs more work, the array is above.";
 		# this will update all date fields given just any one of them
-		if( exists $c->{'datetimeUnixEpoch'} and defined $c->{'datetimeUnixEpoch'} ){
-			if( ! $self->date($c->{'datetimeUnixEpoch'}) ){ warn "error, setting the date from a unix-epoch seconds (".$c->{'datetimeUnixEpoch'}.") has failed."; return undef }
-		} elsif( exists $c->{'datetimeISO8601'} and defined $c->{'datetimeISO8601'} ){
-			if( ! $self->date($c->{'datetimeISO8601'}) ){ warn "error, setting the date from a unix-epoch seconds (".$c->{'datetimeISO8601'}.") has failed."; return undef }
-		} elsif( exists $p->{'datetime-obj'} and defined $p->{'datetime-obj'} ){
-			if( ! $self->date($p->{'datetime-obj'}) ){ warn "error, setting the date from a unix-epoch seconds (".$p->{'datetime-obj'}.") has failed."; return undef }
-		} else { warn "error, something seriously wrong with the input array specified, datetimeUnixEpoch was undefined.\n"; return undef }
+#		if( exists $c->{'datetimeUnixEpoch'} and defined $c->{'datetimeUnixEpoch'} ){
+#			if( ! $self->date($c->{'datetimeUnixEpoch'}) ){ warn "error, setting the date from a unix-epoch seconds (".$c->{'datetimeUnixEpoch'}.") has failed."; return undef }
+#		} elsif( exists $c->{'datetimeISO8601'} and defined $c->{'datetimeISO8601'} ){
+#			if( ! $self->date($c->{'datetimeISO8601'}) ){ warn "error, setting the date from a unix-epoch seconds (".$c->{'datetimeISO8601'}.") has failed."; return undef }
+#		} elsif( exists $p->{'datetime-obj'} and defined $p->{'datetime-obj'} ){
+#			if( ! $self->date($p->{'datetime-obj'}) ){ warn "error, setting the date from a unix-epoch seconds (".$p->{'datetime-obj'}.") has failed."; return undef }
+#		} else { warn "error, something seriously wrong with the input array specified, datetimeUnixEpoch was undefined.\n"; return undef }
 	} else { warn "parameter can be a hashref or an arrayref with values"; return undef }
 
 	# and done
@@ -76,7 +84,7 @@ sub	date {
 	my $m = $_[1];
 	return $self->{'p'}->{'datetime-obj'} unless defined $m;
 	if( ref($m) eq '' ){
-		if( $m =~ /[:-]/ ){
+		if( $m =~ /[\:\-]/ ){
 			# it's an ISO8601 string
 			if( ! defined($self->{'p'}->{'datetime-obj'} = Statistics::Covid::Utils::iso8601_to_DateTime($m)) ){ warn "error, call to ".'Statistics::Covid::Utils::iso8601_to_DateTime()'." has failed."; return undef }
 		} else {
@@ -98,21 +106,33 @@ sub	date {
 # returns 0 if self is same as input
 # returns -1 if input is bigger than self
 # we compare only markers, we don't care about any other fields
+# note that self is Statistics::Covid::Datum
+# and another can be:
+#    Statistics::Covid::Schema::Result::Datum
+# or
+#    Statistics::Covid::Datum
+# if you want to get the name of a column for which there is
+# no getter, use
+# Statistics::Covid::Datum::get_column('terminal')
+# and
+# Statistics::Covid::Schema::Result::Datum::get_column('terminal')
 sub	newer_than {
 	my $self = $_[0];
 	my $inputObj = $_[1];
 	my ($S, $I);
 
-	if( ($S=$self->terminal()) > ($I=$inputObj->terminal()) ){ return 1 }
+	if( ($S=$self->get_column('datetimeUnixEpoch')) > ($I=$inputObj->get_column('datetimeUnixEpoch')) ){ return 1 }
+	elsif( $S < $I ){ return -1 }
+	if( ($S=$self->get_column('terminal')) > ($I=$inputObj->get_column('terminal')) ){ return 1 }
 	elsif( $S < $I ){ return -1 }
 	# terminals are the same, go to next marker
-	if( ($S=$self->confirmed()) > ($I=$inputObj->confirmed()) ){ return 1 }
+	if( ($S=$self->get_column('confirmed')) > ($I=$inputObj->get_column('confirmed')) ){ return 1 }
 	elsif( $S < $I ){ return -1 }
 	# confirmed are the same, go to next marker
-	if( ($S=$self->recovered()) > ($I=$inputObj->recovered()) ){ return 1 }
+	if( ($S=$self->get_column('recovered')) > ($I=$inputObj->get_column('recovered')) ){ return 1 }
 	elsif( $S < $I ){ return -1 }
 	# recovered are the same, go to next marker
-	if( ($S=$self->unconfirmed()) > ($I=$inputObj->unconfirmed()) ){ return 1 }
+	if( ($S=$self->get_column('unconfirmed')) > ($I=$inputObj->get_column('unconfirmed')) ){ return 1 }
 	elsif( $S < $I ){ return -1 }
 	# recovered are the same, we have nothing else, they are identical
 	return 0 # identical
@@ -124,38 +144,11 @@ sub	equals {
 	my $res;
 	my $c = $self->{'c'};
 	my $C = $another->{'c'};
-	for my $k (@{$self->column_names()}){
-		if( ($c->{$k} cmp $C->{$k}) != 0 ){ return 0 }
+	for (@{$self->column_names()}){
+		#print "comparing '$_': ".$c->{$_}." and ".$C->{$_}."\n";
+		if( ($c->{$_} cmp $C->{$_}) != 0 ){ return 0 }
 	}
 	return 1 # equal!
-}
-# compares this object's primary key(s) with another
-# and returns 0 if different or 1 if the same
-# this can be used in checking whether two objs will be mapped
-# to the same db row (if they have the same PK they will be)
-# thus checking for duplicates in-memory or in-db
-sub	equals_primary_key {
-	my $self = $_[0];
-	my $another = $_[1];
-	my $res;
-	my $c = $self->{'c'};
-	my $C = $another->{'c'};
-	for my $k (@{$self->column_names_for_primary_key()}){
-		if( ($c->{$k} cmp $C->{$k}) != 0 ){ return 0 }
-	}
-	return 1 # equal!
-}
-# returns the values of PK columns joined with '|'
-# this acts as a form of a PK but DB internally may hash this (with different separator)
-# but this will definetely be a unique primary key.
-sub	primary_key {
-	my $self = $_[0];
-	my $c = $self->{'c'};
-	my $ret = "";
-	for my $k (@{$self->column_names_for_primary_key()}){
-		$ret .="|".$c->{$k}
-	}
-	return $ret # a primary key (this may not be exactly the same used in DB internally)
 }
 sub	id {
 	my $self = $_[0];
@@ -164,32 +157,48 @@ sub	id {
 	$self->{'c'}->{'id'} = $m;
 	return $m;
 }
-sub	name {
+sub	admin0 {
 	my $self = $_[0];
 	my $m = $_[1];
-	return $self->{'c'}->{'name'} unless defined $m;
-	$self->{'c'}->{'name'} = $m;
+	return $self->{'c'}->{'admin0'} unless defined $m;
+	$self->{'c'}->{'admin0'} = $m;
 	return $m;
 }
-sub	belongsto {
+sub	admin1 {
 	my $self = $_[0];
 	my $m = $_[1];
-	return $self->{'c'}->{'belongsto'} unless defined $m;
-	$self->{'c'}->{'belongsto'} = $m;
+	return $self->{'c'}->{'admin1'} unless defined $m;
+	$self->{'c'}->{'admin1'} = $m;
 	return $m;
 }
+sub	admin2 {
+	my $self = $_[0];
+	my $m = $_[1];
+	return $self->{'c'}->{'admin2'} unless defined $m;
+	$self->{'c'}->{'admin2'} = $m;
+	return $m;
+}
+sub	admin3 {
+	my $self = $_[0];
+	my $m = $_[1];
+	return $self->{'c'}->{'admin3'} unless defined $m;
+	$self->{'c'}->{'admin3'} = $m;
+	return $m;
+}
+sub	admin4 {
+	my $self = $_[0];
+	my $m = $_[1];
+	return $self->{'c'}->{'admin4'} unless defined $m;
+	$self->{'c'}->{'admin4'} = $m;
+	return $m;
+}
+# shortcuts to admin/name:
+sub	country { return $_[0]->admin0($_[1]) }
 sub	type {
 	my $self = $_[0];
 	my $m = $_[1];
 	return $self->{'c'}->{'type'} unless defined $m;
 	$self->{'c'}->{'type'} = $m;
-	return $m;
-}
-sub	population {
-	my $self = $_[0];
-	my $m = $_[1];
-	return $self->{'c'}->{'population'} unless defined $m;
-	$self->{'c'}->{'population'} = $m;
 	return $m;
 }
 sub	date_iso8601 { return $_[0]->{'c'}->{'datetimeISO8601'} }
@@ -199,13 +208,6 @@ sub	datasource {
 	my $m = $_[1];
 	return $self->{'c'}->{'datasource'} unless defined $m;
 	$self->{'c'}->{'datasource'} = $m;
-	return $m;
-}
-sub	area {
-	my $self = $_[0];
-	my $m = $_[1];
-	return $self->{'c'}->{'area'} unless defined $m;
-	$self->{'c'}->{'area'} = $m;
 	return $m;
 }
 sub	unconfirmed {
@@ -236,49 +238,46 @@ sub	terminal {
 	$self->{'c'}->{'terminal'} = $m;
 	return $m;
 }
+# use it like Statistics::Covid::Datum->make_random_object(optional-seed)
 sub	make_random_object {
-	srand $_[0] if defined $_[0];
+	my $class = $_[0];
+	srand $_[1] if defined $_[1];
 
-	my $random_name = join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10));
 	my $datum_params = {
 	'id' => "E".sprintf("%07d", int(rand(1000000))),
-	'name' => $random_name,
-	'population' => 10000 + int(rand(1000000)),
+	'admin0' => join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10)),
+	'admin1' => join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10)),
+	'admin2' => join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10)),
+	'admin3' => join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10)),
+	'admin4' => join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10)),
 	'type' => 'english local authority',
 	'confirmed' => 10 + int(rand(10000)),
 	'unconfirmed' => 10 + int(rand(100)),
 	'terminal' => 0 + int(rand(100)),
 	'recovered' => 5 + int(rand(100)),
-	'area' => 10000 + int(rand(1000000)),
 	'datasource' => 'BBC',
-	'belongsto' => '',
 	'datetimeISO8601' => DateTime->now()->iso8601().'Z'
 	};
-	my $obj = Statistics::Covid::Datum->new($datum_params);
+	my $obj = __PACKAGE__->new($datum_params);
 	if( ! defined $obj ){ warn "error, call to ".'Statistics::Covid::Datum->new()'." has failed."; return undef }
 	return $obj
 }
 sub	toString {
 	my $self = $_[0];
-	my $bt = $self->belongsto();
 	return '['
-		.$self->name()
-		.(($bt ne '') ? '/':$bt)
-		.' ('
+		.$self->admin0().'/'.$self->admin1()
+		.' (id:'
 			.$self->id()
 			.'@'
 			.'<'.$self->date_iso8601().'>'
 			.' from '
 			."'".$self->datasource()."'"
 		.', '
-		.$self->area().' km2) : '
 		.'c:'.$self->confirmed()
 		.'|'
 		.'t:'.$self->terminal()
 		.'|'
 		.'r:'.$self->recovered()
-		.'/p:'
-		.$self->population()
 	. ']'
 }
 1;
@@ -295,7 +294,7 @@ Statistics::Covid::Datum - Class dual to the 'Datum' table in DB - it contains d
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 =head1 DESCRIPTION
 
@@ -303,7 +302,7 @@ This module tries to expose all the fields of the Datum table in the database.
 It inherits from L<Statistics::Covid::IO::DualBase>. And overwrites some subs
 from it. For example the L<Statistics::Covid::Datum::newer_than>.
 It exposes all its dual table fields as setter/getter subs and also
-via the generic sub L<Statistics::Covid::Datum::column_value> (which
+via the generic sub L<Statistics::Covid::Datum::get_column> (which
 takes as an argument the field/column name and returns its value).
 
 See also L<Statistics::Covid::Datum::Table> which describes the

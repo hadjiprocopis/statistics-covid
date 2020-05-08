@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use Getopt::Long;
 
@@ -16,6 +16,7 @@ my $DEBUG = 0;
 my $conditions = undef;
 my $attributes = undef;
 my $clear_db_before = 0;
+my $erase_db_before = 0;
 
 if( ! Getopt::Long::GetOptions(
 	'config-file-source=s' => \$configfile1,
@@ -24,6 +25,7 @@ if( ! Getopt::Long::GetOptions(
 	'attributes=s' => \$attributes,
 	'tablename=s' => \$tablename,
 	'clear' => \$clear_db_before,
+	'erase' => \$erase_db_before,
 	'debug=i' => \$DEBUG,
 ) ){ die usage() . "\n\nerror in command line."; }
 
@@ -57,6 +59,7 @@ if( defined $attributes ){
 		unless defined $pva;
 	$db_select_params->{'attributes'} = $pva;
 }
+if( $DEBUG > 0 ){ print pp($db_select_params) }
 my $objs = $io1->db_select($db_select_params);
 die pp($db_select_params)."\n\ncall to db_select() has failed for the above parameters"
 	unless defined $objs;
@@ -77,6 +80,8 @@ my $count1 = $io2->db_count();
 
 if( $clear_db_before == 1 ){
 	die "call to db_clear() failed" unless $io2->db_clear()>=0;
+} elsif( $erase_db_before == 1 ){
+	die "call to db_deploy() failed" unless $io2->db_deploy({'drop-table'=>1});
 }
 
 my $ret = $io2->db_insert_bulk($objs);

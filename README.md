@@ -4,13 +4,13 @@ Statistics::Covid - Fetch, store in DB, retrieve and analyse Covid-19 statistics
 
 # VERSION
 
-Version 0.23
+Version 0.24
 
 # DESCRIPTION
 
 This module fetches, stores in a database, retrieves from a database and analyses
 Covid-19 statistics from online or offline data providers, such as
-from [the John Hopkins University](https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6)
+from [the Johns Hopkins University](https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6)
 which I hope I am not obstructing (please send an email to the author if that is the case).
 
 After specifying one or more data providers (as a url and a header for data and
@@ -23,25 +23,71 @@ Each such data item (Datum) is described in [Statistics::Covid::Datum::Table](ht
 and the relevant class is [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum). It contains
 fields such as: `population`, `confirmed`, `unconfirmed`, `terminal`, `recovered`.
 
-Focus was on creating very high-level which distances as much as possible
-the user from the nitty-gritty details of fetching data using [LWP::UserAgent](https://metacpan.org/pod/LWP%3A%3AUserAgent)
-and dealing with the database using [DBI](https://metacpan.org/pod/DBI) and [DBIx::Class](https://metacpan.org/pod/DBIx%3A%3AClass).
+Focus was on creating a very high-level API and command line scripts
+to distance the user as much as possible
+from the nitty-gritty details of fetching data using [LWP::UserAgent](https://metacpan.org/pod/LWP%3A%3AUserAgent),
+cleaning the data, dealing with the database using [DBI](https://metacpan.org/pod/DBI) and [DBIx::Class](https://metacpan.org/pod/DBIx%3A%3AClass).
 
-This is an early release until the functionality and the table schemata
+This is still considered an early release until the functionality and the table schemata
 solidify.
+
+Feel free to
+share any modules you create on analysing this data, either
+under the [Statistics::Covid](https://metacpan.org/pod/Statistics%3A%3ACovid)
+namespace (for example in [Statistics::Covid::Analysis::MyModule](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3AAnalysis%3A%3AMyModule))
+or any other you see appropriate.
+
+The module uses three database tables at the moment:
+[Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum),
+[Statistics::Covid::Version](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3AVersion) and  [Statistics::Covid::WorldbankData](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3AWorldbankData).
+Consult [Statistics::Covid::Schema::Result::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ASchema%3A%3AResult%3A%3ADatum) on how to do
+create your own tables. For example for storing plots or fitted models.
+
+In order to assist analysis and in particular in correlating the epidemic's statistics
+with socio-economical data a sub-package
+([Statistics::Covid::WorldbankData](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3AWorldbankData))
+has been created which
+downloads such data provided by [https://www.worldbank.org/ ](https://metacpan.org/pod/%20the%20World%20Bank)
+and stores it in the database, in a table on its own.
 
 # SYNOPSIS
 
         use Statistics::Covid;
         use Statistics::Covid::Datum;
 
+        # create the object for downloading data, parsing, cleaning
+        # and storing to DB. If table is not deployed it will be deployed.
+        # (tested with SQLite)
         $covid = Statistics::Covid->new({
+                # configuration file (or hash)
                 'config-file' => 't/config-for-t.json',
-                'providers' => ['UK::BBC', 'UK::GOVUK', 'World::JHU'],
+                #'config-hash' => {...}.,
+                # known data providers
+                # 'World::JHU' points to
+                # https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6
+                # it's a Johns Hopkins University site and contains world data since the
+                # beginning as well as local data (states) for the US, Canada and China
+                # 'World::JHUgithub' points to this:
+                # https://github.com/CSSEGISandData/COVID-19
+                # 'World::JHUlocaldir' is a local clone (git clone) of the above
+                # because the online github has a limit on files to download
+                # the best is to git-clone locally and use 'World::JHUlocaldir'
+                # Then there are 2 repositories for UK statistics broken
+                # into local areas.
+                'providers' => ['UK::BBC', 'UK::GOVUK2',
+                  'World::JHUlocaldir', 'World::JHUgithub',
+                  'World::JHU'
+                ],
+                # save fetched data locally in its original format (json or csv)
+                # and also as a perl var
                 'save-to-file' => 1,
+                # save fetched data into the database in table Datum
                 'save-to-db' => 1,
-                'debug' => 2,
+                # debug level affects verbosity
+                'debug' => 2, # 0, 1, ...
         }) or die "Statistics::Covid->new() failed";
+
+        # Do the download:
         # fetch all the data available (posibly json), process it,
         # create Datum objects, store it in DB and return an array
         # of the Datum objects just fetched  (and not what is already in DB).
@@ -57,8 +103,8 @@ solidify.
 
         my $someObjs = $covid->select_datums_from_db({
                 'conditions' => {
-                        belongsto=>'UK',
-                        name=>'Hackney'
+                        admin0=>'UK',
+                        admin1=>'Hackney'
                 }
         });
 
@@ -70,21 +116,31 @@ solidify.
 
         # or for a single place (this sub sorts results wrt publication time)
         my $timelineObjs =
-          $covid->select_datums_from_db_for_specific_location_time_ascending(
-                'Hackney'
-          );
+          $covid->select_datums_from_db_time_ascending({
+                'conditions' => {
+                        'admin1' => 'Hackney',
+                        'admin0' => 'UK',
+                }
+          });
 
         # or for a wildcard match
         my $timelineObjs =
-          $covid->select_datums_from_db_for_specific_location_time_ascending(
-                {'like'=>'Hack%'}
-          );
+          $covid->select_datums_from_db_time_ascending({
+                'conditions' => {
+                        'admin1' => {'like'=>'Hack%'},
+                        'admin0' => 'UK',
+                }
+          });
 
         # and maybe specifying max rows
         my $timelineObjs =
-          $covid->select_datums_from_db_for_specific_location_time_ascending(
-                {'like'=>'Hack%'}, {'rows'=>10}
-          );
+          $covid->select_datums_from_db_time_ascending({
+                'conditions' => {
+                        'admin1' => {'like'=>'Hack%'},
+                        'admin0' => 'UK',
+                },
+                'attributes' => {'rows' => 10}
+          });
 
         # print those datums
         for my $anobj (@$timelineObjs){
@@ -121,27 +177,31 @@ solidify.
         # data will come out as an array of Datum objects sorted wrt time
         # (wrt the 'datetimeUnixEpoch' field)
         $objs =
-          $covid->select_datums_from_db_for_specific_location_time_ascending(
-                #{'like' => 'Ha%'}, # the location (wildcard)
-                ['Halton', 'Havering'],
-                #{'like' => 'Halton'}, # the location (wildcard)
-                #{'like' => 'Havering'}, # the location (wildcard)
-                'UK', # the belongsto (could have been wildcarded or omitted)
+          $covid->select_datums_from_db_time_ascending(
+                'conditions' => {
+                        # admin1 is a province, state
+                        # similarly admin2 can be a local authority but
+                        # that varies between countries and data providers
+                        #'admin1' =>{'like' => 'Ha%'},
+                        #'admin1' =>['Halton', 'Havering'],
+                        # the admin0 (could be a wildcard) is like a country name
+                        'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
+                }
           );
 
-        # create a dataframe (see doc in L<Statistics::Covid::Utils>)
+        # create a dataframe (see L<Statistics::Covid::Utils/datums2dataframe>)
         $df = Statistics::Covid::Utils::datums2dataframe({
                 # input data is an array of L<Statistics::Covid::Datum>'s
                 # as fetched from providers or selected from DB (see above)
                 'datum-objs' => $objs,
 
-                # collect data from all those with same 'name' and same 'belongsto'
+                # collect data from all those with same 'admin1' and same 'admin0'
                 # and maybe plot this data as a single curve (or fit or whatever)
                 # this will essentially create an entry for 'Hubei|China'
                 # another for 'Italy|World', another for 'Hackney|UK'
-                # etc. FOR all name/belongsto tuples in your
+                # etc. FOR all admin0/admin1 tuples in your
                 # selected L<Statistics::Covid::Datum>'s
-                'groupby' => ['name','belongsto'],
+                'groupby' => ['admin0','admin1', 'admin2', 'admin3', 'admin4'],
 
                 # what fields/attributes/column-names of the datum object
                 # to insert into the dataframe?
@@ -198,7 +258,7 @@ solidify.
                 # the dataframe, e.g. 'GroupBy'
                 'datum-objs' => $objs,
                 # see the datums2dataframe() example above for explanation:
-                'GroupBy' => ['name', 'belongsto'],
+                'GroupBy' => ['admin0', 'admin1'],
 
                 'outfile' => 'confirmed-over-time.png',
                 # use this column as Y
@@ -217,15 +277,14 @@ solidify.
         });
 
         #####
-        # Fit an analytical model to data
+        # Fit a model to data
         # i.e. find the parameters of a user-specified
         # equation which can fit on all the data points
         # with the least error.
-        # In suce cases (growth), an exponential model is
-        # usual: c1 * c2^x (c1 and c2 must be found / fitted)
+        # An exponential model is often used in the spread of a virus:
+        # c1 * c2^x (c1 and c2 are the coefficients to be found / fitted)
         # 'x' is the independent variable and usually denotes time
-        # time in L<Statistics::Covid::Datum> is the
-        # 'datetimeUnixEpoch' field     
+        # in L<Statistics::Covid::Datum> is the 'datetimeUnixEpoch' field
         #####
 
         use Statistics::Covid;
@@ -242,6 +301,7 @@ solidify.
         });
         # we have a problem because seconds since the Unix epoch
         # is a huge number and the fitter algorithm does not like it.
+        # actually exponential functions in a discrete computer don't like it.
         # So push their oldest datapoint to 0 (hours) and all
         # later datapoints to be relative to that.
         # This does not affect data in DB or even in the array of
@@ -354,25 +414,6 @@ solidify.
         #              },
         #  }
 
-
-
-        use Statistics::Covid::Analysis::Plot::Simple;
-
-        # plot something
-        my $objs = $io->db_select({
-                conditions => {belongsto=>'UK', name=>{'like' => 'Ha%'}}
-        });
-        my $outfile = 'chartclicker.png';
-        my $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
-                'datum-objs' => $objs,
-                # saves to this file:
-                'outfile' => $outfile,
-                # plot this column (x-axis is time always)
-                'Y' => 'confirmed',
-                # and make several plots, each group must have 'name' common
-                'GroupBy' => ['name']
-        });
-
 # EXAMPLE SCRIPTS
 
 `script/statistics-covid-fetch-data-and-store.pl` is
@@ -418,31 +459,42 @@ this same data.
 
 It will also insert fetched data in the database. There are three
 modes of operation for that, denoted by the `replace-existing-db-record`
-entry in the config file (under `dparams`). Clarification:
-a _duplicate_ record means duplicate as far as the primary key(s)
+entry in the config file (under `dparams`).
+
+### Definition of duplicate records
+
+A _duplicate_ record means duplicate as far as the primary key(s)
 are concerned and nothing else. For example, [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum)'s
 PK is a combination of
 `name`, `id` and `datetimeISO8601` (see [Statistics::Covid::Datum::Table](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum%3A%3ATable)).
 If two records have these 3 fields exactly the same, then they are considered
-_duplicate_.
+_duplicate_. If one record's `confirmed` value is 5 and the second record's
+is 10, then the second record is considered more _up-to-date_, _newer_
+than the first one. See [Statistics::Covid::Datum::newer\_than](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum%3A%3Anewer_than) on how to
+overwrite that behaviour.
 
-> `ignore` : will not insert new data if duplicate exists 
+> `replace` : will force **replacing** existing database data with new data, 
+> no questions asked about. With this option existing data may be more
+> up-to-date than the newly fetched data, but it will be forcibly replaced.
+> No questions asked.
 >
-> only newer, up-to-date data
-> will be inserted. So, calling this script, say once or twice will
+> `ignore` : will not insert new data if _duplicate_ exists in database.
+> End of story. No questions asked.
+>
+> `only-better` : this is the preferred option. Only _newer_,
+> more _up-to-date_ data
+> will be inserted. _newer_ is decided by what
+> [Statistics::Covid::Datum::newer\_than](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum%3A%3Anewer_than) sub returns.
+> With this option in your config file,
+> calling this script, more than once will
 > make sure you have the latest data without accummulating it
-> redundantly.
->
-> **But please call this script AT MAXIMUM one or two times per day so as not to
-> obstruct public resources. Please, Please.**
->
-> When the database is up-to-date, analysis of data is the next step.
->
-> In the synopis, it is shown how to select records from the database,
-> as an array of [Statistics::Covid::Datum](https://metacpan.org/pod/Statistics%3A%3ACovid%3A%3ADatum) objects. Feel free to
-> share any modules you create on analysing this data, either
-> under this namespace (for example Statistics::Covid::Analysis::XYZ)
-> or any other you see appropriate.
+> redundantly either in the database or as a local file.
+
+**Please call this script AT MAXIMUM one or two times per day so as not to
+obstruct public resources.**
+
+When the database is up-to-date, analysis of data is the next step:
+plotting, fitting to analytical models, prediction, comparison.
 
 # CONFIGURATION FILE
 
@@ -501,6 +553,10 @@ abstraction offered by [DBI](https://metacpan.org/pod/DBI) and [DBIx::Class](htt
 **However**, only the SQLite support has been tested.
 
 **Support for MySQL is totally untested**.
+
+# REPOSITORY
+
+[https://github.com/hadjiprocopis/statistics-covid](https://github.com/hadjiprocopis/statistics-covid)
 
 # AUTHOR
 
@@ -585,7 +641,7 @@ Almaz
 - [Perlmonks](https://www.perlmonks.org) for supporting the world with answers and programming enlightment
 - [DBIx::Class](https://metacpan.org/pod/DBIx%3A%3AClass)
 - the data providers:
-    - [John Hopkins University](https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6),
+    - [Johns Hopkins University](https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6),
     - [UK government](https://www.gov.uk/government/publications/covid-19-track-coronavirus-cases),
     - [https://www.bbc.co.uk](https://www.bbc.co.uk) (for disseminating official results)
 
@@ -633,10 +689,6 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 912:
+- Around line 633:
 
-    &#x3d;over should be: '=over' or '=over positive\_number'
-
-- Around line 935:
-
-    You forgot a '=back' before '=head1'
+    alternative text 'https://www.worldbank.org/ ' contains non-escaped | or /

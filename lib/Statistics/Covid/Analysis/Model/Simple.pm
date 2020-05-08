@@ -1,11 +1,12 @@
 package Statistics::Covid::Analysis::Model::Simple;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
 use Statistics::Covid::Datum;
 use Statistics::Covid::Utils;
+use Statistics::Covid::Analysis::Model;
 
 use Math::Symbolic;
 use Math::Symbolic::Parser;
@@ -15,59 +16,25 @@ use Algorithm::CurveFit;
 
 use Data::Dump qw/pp/;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 our $DEBUG = 1;
 
 sub     fit {
-	# thick wrapper over Algorithm::CurveFit
+	# a quite thick wrapper over Algorithm::CurveFit
 	my $params = $_[0];
 	my $dataframe = exists($params->{'dataframe'}) ? $params->{'dataframe'} : undef;
 	if( ! defined $dataframe ){ warn "error, input parameter 'dataframe' is missing."; return undef }
 
-	$Math::Symbolic::Parser::DEBUG = $DEBUG;
+	my $debug = exists($params->{'debug'}) && defined($params->{'debug'})
+		? $params->{'debug'} : $DEBUG;
+
+	$Math::Symbolic::Parser::DEBUG = $debug;
 	$Math::Symbolic::Parser = Math::Symbolic::Parser->new(
 		 implementation=>'Yapp'
 	);
 
 	my $m;
-
-	# is this for fitting an exponential function c0 * c1^x ?
-	my $exponential_fit = exists($params->{'exponential-fit'}) && defined($params->{'exponential-fit'}) ? $params->{'exponential-fit'} : 0;
-	# is this a polynomial fit?
-	my $polynomial_fit = exists($params->{'polynomial-fit'}) && defined($params->{'polynomial-fit'}) ? $params->{'polynomial-fit'} : 0;
-
-	my $formula = undef;
-
-	if( $exponential_fit and $polynomial_fit ){ warn "error, you can not ask for both exponential and polynomial fit."; return undef }
-	elsif( $exponential_fit ){
-		$formula = 'c1*c2^x';
-		if( $DEBUG > 0 ){ warn "asked to do exponential fit : $formula" }
-	} elsif( $polynomial_fit ){
-		# asked for polynomial fit of degree $polynomial_fit (the max power of x)
-		# all we have to do is to produce a polynomial of this degree
-		$formula = 'c001 + c002 * x';
-		$formula .= sprintf(' + c%03d',$_).' * x^' . $_ for 2..$polynomial_fit;
-		if( $DEBUG > 0 ){ warn "asked to do polynomial fit of degree $polynomial_fit : $formula" }
-	}
-
-	# Required (formula): ONLY if not exponential fit or polynomial fit
-	# specify the formula to fit, e.g. 'c1+c2*x^3' (exponential 'c1+c2*c3^x' is not robust at all!!!
-	# in this case use exponential-fit
-	if( ! defined $formula ){
-		$formula = exists($params->{'formula'}) ? $params->{'formula'} : undef;
-		if( ! defined $formula ){ warn "error, 'formula' was missing from the input params, it must be the column name for formula values."; return undef }
-	}
-
-	# make sure the formula compiles
-	my $tree =  Math::Symbolic->parse_from_string($formula);
-	if( ! defined $tree ){ warn "error, call to ".'Math::Symbolic->parse_from_string()'." has failed for formula: '$formula'."; return undef }
-	if( $DEBUG > 0 ){ warn "formula parsed: $tree" }
-	# and find all the constants in that formula (any var other than 'x')
-	# fitting means to find those constants so that our function reproduces as accurately, the data
-	my @constants = grep !/^x$/, $tree->explicit_signature();
-	if( scalar(@constants) == 0 ){ warn "error, there are no constants in the formula to optimise : $formula"; return undef }
-	if( $DEBUG > 0 ){ warn "coefficients in the formula to optimise are: '".join("','", @constants)."'" }
 
 	# Required:
 	# specify what the X and Y data are going to be for the particular group(s)
@@ -76,25 +43,75 @@ sub     fit {
 	my $Y = exists($params->{'Y'}) ? $params->{'Y'} : undef;
 	if( ! defined $Y ){ warn "error, 'Y' was missing from the input params, it must be the column name for Y values."; return undef }
 
+	# optional, maximum iterations for the fitter
+	my $max_iterations = exists($params->{'max-iterations'})
+		? $params->{'max-iterations'} : 1000
+	;
+	# optional, maximum iterations for the fitter
+	my $min_points = exists($params->{'min-points'})
+		? $params->{'min-points'} : 3
+	;
+	# optional, maximum mean error for the fitter
+	my $max_mean_fit_error = exists($params->{'max-mean-fit-error'})
+		? $params->{'max-mean-fit-error'} : 10 # some default, not sure if that's right <1 would be better
+	;
+
+	# is this for fitting an exponential function c0 * c1^x ?
+	my $exponential_fit = exists($params->{'exponential-fit'}) && defined($params->{'exponential-fit'}) ? $params->{'exponential-fit'} : 0;
+	# is this a polynomial fit?
+	my $polynomial_fit = exists($params->{'polynomial-fit'}) && defined($params->{'polynomial-fit'}) ? $params->{'polynomial-fit'} : 0;
+
+	my $formula = undef; my $formula_name_str = undef;
+	if( $exponential_fit and $polynomial_fit ){ warn "error, you can not ask for both exponential and polynomial fit."; return undef }
+	elsif( $exponential_fit ){
+		$formula = 'c1*c2^x'; $formula_name_str = 'exponential';
+		if( $debug > 0 ){ warn "$X vs $Y : asked to do exponential fit : $formula" }
+	} elsif( $polynomial_fit ){
+		# asked for polynomial fit of degree $polynomial_fit (the max power of x)
+		# all we have to do is to produce a polynomial of this degree
+		$formula = 'c001 + c002 * x'; $formula_name_str = "polynomial, degree $polynomial_fit";
+		$formula .= sprintf(' + c%03d',$_).' * x^' . $_ for 2..$polynomial_fit;
+		if( $debug > 0 ){ warn "$X vs $Y : polynomial fit of degree $polynomial_fit : $formula" }
+	}
+
+	# Required (formula): ONLY if not exponential fit or polynomial fit
+	# specify the formula to fit, e.g. 'c1+c2*x^3' (exponential 'c1+c2*c3^x' is not robust at all!!!
+	# in this case use exponential-fit
+	if( ! defined($formula) && exists($params->{'formula'}) && defined($params->{'formula'}) ){
+		$formula = $params->{'formula'}; $formula_name_str = 'adhoc';
+	}
+	if( ! defined $formula ){ warn "error, 'formula' was missing from the input params, it must be the column name for formula values."; return undef }
+
+	# make sure the formula compiles
+	my $tree = Math::Symbolic->parse_from_string($formula);
+	if( ! defined $tree ){ warn "error, call to ".'Math::Symbolic->parse_from_string()'." has failed for formula: '$formula'."; return undef }
+	if( $debug > 1 ){ warn "formula parsed: $tree" }
+	# and find all the coefficients in that formula (any var other than 'x')
+	# fitting means to find those coefficients so that our function reproduces as accurately, the data
+	my @coefficients = grep !/^x$/, $tree->explicit_signature();
+	my $num_coefficients = scalar(@coefficients);
+	if( $num_coefficients == 0 ){ warn "error, there are no coefficients in the formula to optimise : $formula"; return undef }
+	if( $debug > 1 ){ warn "Found $num_coefficients coefficients in the formula : '".join("','", @coefficients)."'" }
+
 	# set every param's accuracy to our default:
-	my %accuracy; $accuracy{$_} = 0.00005 for @constants;
+	my %accuracy; $accuracy{$_} = 0.00005 for @coefficients;
 	# Optional accuracy, one for all, or via a hash one for each
 	if( exists($params->{'accuracy'}) && defined($m=$params->{'accuracy'}) ){
-		if( ref($m) eq '' ){ map { $accuracy{$_} = $m } @constants }
+		if( ref($m) eq '' ){ map { $accuracy{$_} = $m } @coefficients }
 		elsif( ref($m) eq 'HASH' ){ map { $accuracy{$_} = $m->{$_} } keys %$m }
 		else { warn "error, coefficient 'accuracy' can be a single number (for all coefficients) or a hashref to define accuracy for individual coefficients."; return undef }
 	}
-	if( $DEBUG > 0 ){ warn "accuracy: ".pp(\%accuracy) }
+	if( $debug > 1 ){ warn "accuracy: ".pp(\%accuracy) }
 
 	# set every param's initial guess to our default (stupid but convenient):
-	my %guess; $guess{$_} = 1.0 for @constants;
+	my %guess; $guess{$_} = 1.0 for @coefficients;
 	# Optional guess, one for all, or via a hash one for each
 	if( exists($params->{'initial-guess'}) && defined($m=$params->{'initial-guess'}) ){
-		if( ref($m) eq '' ){ map { $guess{$_} = $m } @constants }
+		if( ref($m) eq '' ){ map { $guess{$_} = $m } @coefficients }
 		elsif( ref($m) eq 'HASH' ){ map { $guess{$_} = $m->{$_} } keys %$m }
 		else { warn "error, parameter 'initial-guess' can be a single number (for all coefficients) or a hashref to define initial guess for individual coefficients."; return undef }
 	}
-	if( $DEBUG > 0 ){ warn "initial guess for coefficients: ".pp(\%guess) }
+	if( $debug > 1 ){ warn "initial guess for coefficients: ".pp(\%guess) }
 
 	# Optional, this must be the group i.e. a key to the DF hashref
 	# if not specified then it will do all keys of the DF
@@ -102,18 +119,19 @@ sub     fit {
 	if( exists($params->{'groups'}) && defined($params->{'groups'}) ){
 		@groups = @{$params->{'groups'}};
 		# make a check these names are keys in the dataframe
-		for my $k (@groups){ if( ! exists($dataframe->{$k}) || ! defined($dataframe->{$k}) ){ warn "error, no key '$k' exists in the input dataframe (this was specified in the 'groups' param), keys in the dataframe are: '".join("','", sort keys %$dataframe)."'."; return undef } }
+		for (@groups){ if( ! exists($dataframe->{$_}) || ! defined($dataframe->{$_}) ){ warn "error, no key '$_' exists in the input dataframe (this was specified in the 'groups' param), keys in the dataframe are: '".join("','", sort keys %$dataframe)."'."; return undef } }
 	} else {
 		# use as groups ALL the keys of the dataframe, that can cost a lot of time if caller does not know what is doing
 		@groups = (sort keys %$dataframe)
 	}
 	# check that these X,Y names exist in the DF
-	for my $k (@groups){
-		if( ! exists($dataframe->{$k}->{$X}) || ! defined($dataframe->{$k}->{$X}) ){ warn "error, value corresponding for X='$X' in key '$k' of the input dataframe does not exist or is undefined."; return undef }
-		if( ! exists($dataframe->{$k}->{$Y}) || ! defined($dataframe->{$k}->{$Y}) ){ warn "error, value corresponding for Y='$Y' in key '$k' of the input dataframe does not exist or is undefined."; return undef }
+	for (@groups){
+		if( ! exists($dataframe->{$_}->{$X}) || ! defined($dataframe->{$_}->{$X}) ){ warn "error, value corresponding for X='$X' in key '$_' of the input dataframe does not exist or is undefined."; return undef }
+		if( ! exists($dataframe->{$_}->{$Y}) || ! defined($dataframe->{$_}->{$Y}) ){ warn "error, value corresponding for Y='$Y' in key '$_' of the input dataframe does not exist or is undefined."; return undef }
 		# check they have the same size, X and Y
-		if( scalar(@{$dataframe->{$k}->{$X}}) != scalar(@{$dataframe->{$k}->{$Y}}) ){ warn "error, different size for X='$X' (".scalar(@{$dataframe->{$k}->{$X}}).") and Y='$Y' (".scalar(@{$dataframe->{$k}->{$Y}}).")."; return undef }
+		if( scalar(@{$dataframe->{$_}->{$X}->{'data'}}) != scalar(@{$dataframe->{$_}->{$Y}->{'data'}}) ){ warn "error, different size for X='$X' (".scalar(@{$dataframe->{$_}->{$X}->{'data'}}).") and Y='$Y' (".scalar(@{$dataframe->{$_}->{$Y}->{'data'}}).")."; return undef }
 	}
+	my $num_groups = scalar @groups;
 
 	# calling the CurveFit->curve_fit()
 	# any other parameters to the fitter
@@ -123,39 +141,57 @@ sub     fit {
 		'formula' => undef, # later, we need to reparse because we set the coefficients and then goes crazy
 		'params' => undef, # later for each call to function
 		'variable' => 'x',
-		'maximum_iterations' => 100000, # or after so many iterations
+		'max_iterations' => $max_iterations, # or after so many iterations
 	);
 	# append into our fitparams the user-specified ones if exist, overwriting our defaults
 	if( exists($params->{'fit-params'}) && defined($params->{'fit-params'}) ){
 		@fitparams{keys %{$params->{'fit-params'}}} = values %{$params->{'fit-params'}}
 	}
-	my (%ret, $square_residual, $dfk, $N, $i, $x, $y);
+	my (%ret, $square_residual, $dfk, $N, $x, $y, $ts);
+	my $idx = 0;
 	for my $k (@groups){
+		$idx++;
+		$ts = time;
 		$dfk = $dataframe->{$k};
 		# number of data points
-		$N = scalar @{$dfk->{$X}};
+		$N = scalar @{$dfk->{$X}->{'data'}};
 		if( $N < 3 ){
-			warn "$k : warning, too few data points ($N), skipping...";
-			$ret{$k} = [10E10, undef];
+			# can't do anything with 2 data points other than hokuspokus !
+			warn "$k : warning, cowardly refusing to fit just $N datapoints, skipping this scenario";
+			$ret{$k} = undef;
 			next;
+		} elsif( $N < $num_coefficients ){
+			# if the number of coefficients, the degrees of freedom, in the
+			# fit-formula is more than data rows, it makes little sense to proceed
+			warn "$k : warning, number of data rows ($N) is less than the number of coefficients, it makes no sense and will skip fitting this scenario.";
+			$ret{$k} = undef;
+			next			
+		} elsif( $N < $min_points ){
+			warn "$k : warning, number of data rows ($N) is less than the minimum number specified ($min_points) and will skip fitting this scenario.";
+			$ret{$k} = undef;
+			next
 		}
-		$fitparams{'xdata'} = $dfk->{$X};
+		$fitparams{'xdata'} = $dfk->{$X}->{'data'};
 		if( $exponential_fit ){
 			# take the log of all data points of Y,
 			# it's a copy, it leaves the input dataframe's values unaffected
-			$fitparams{'ydata'} = [ map { $_<=0 ? 0 : log($_) } @{$dfk->{$Y}} ];
+			$fitparams{'ydata'} = [ map { $_<=0 ? 0 : log($_) } @{$dfk->{$Y}->{'data'}} ];
 		} else {
-			$fitparams{'ydata'} = $dfk->{$Y};
+			$fitparams{'ydata'} = $dfk->{$Y}->{'data'};
 		}
 		# for each constant (e.g. 'c1', 'c2') curve_fit requires
 		# a triplet of ['a', guess, accuracy]
 		# guess is important but can't be bother to ask user to guess it
-		# accuracy is standard, though smaller takes longer (see maximum_iterations)
+		# accuracy is standard, though smaller takes longer (see max_iterations)
 		# careful don't feed previous params to next one!
-		$fitparams{'params'} = [ map { [$_, $guess{$_}, $accuracy{$_}] } @constants ];
+		$fitparams{'params'} = [ map { [$_, $guess{$_}, $accuracy{$_}] } @coefficients ];
 		if( $exponential_fit ){
 			$fitparams{'formula'} = Math::Symbolic->parse_from_string('c1+c2*x');
 		} else { $fitparams{'formula'} = Math::Symbolic->parse_from_string($formula); }
+		if( $debug > 0 ){ 
+			print "fit() : fitting $formula_name_str : '$X'-'$Y' over $N data points ...\n";
+			if( $debug > 1 ){ print pp({%fitparams{'xdata','ydata'}}) }
+		}
 		eval {
 			# NOTE:
 			# the returned $square_residual is the sum of all errors squared, e.g.
@@ -163,41 +199,58 @@ sub     fit {
 			$square_residual = Algorithm::CurveFit->curve_fit(%fitparams);
 		};
 		# the fitted parameters are where our 'initial-guess' was in $fitparams{'params'}
-		if( $@ or ! defined($square_residual) ){
-			warn "'$k' : error, call to ".'Algorithm::CurveFit::curve_fit()'." has failed".(defined($@)?": ".$@:""); warn "'$k' : this is the data we tried to fit:\n".join("\n", map { $dfk->{$X}->[$_] ."\t". $dfk->{$Y}->[$_] } 0..$N-1)."\nSkipping '$k' ...";
-			$ret{$k} = [10E10, undef];
+		if( $_ or ! defined($square_residual) ){
+			warn "'$k' : error, call to ".'Algorithm::CurveFit::curve_fit()'." has failed".(defined($@)?": ".$@:""); warn "'$k' : this is the data we tried to fit:\n".join("\n", map { $dfk->{$X}->{'data'}->[$_] ."\t". $dfk->{$Y}->{'data'}->[$_] } 0..$N-1)."\nSkipping '$k' ...";
+			$ret{$k} = undef;
 			next;
 		}
 		# convert their square_residual to mean
 		$square_residual /= $N;
-
+		print STDOUT "$k : $idx/$num_groups : fitted $X vs $Y : with $N datapoints and mean error $square_residual\n";
+		if( $square_residual > $max_mean_fit_error ){
+			warn "warning, skipping this because the mean error of fit was not acceptable: $square_residual > $max_mean_fit_error";
+			$ret{$k} = undef;
+			next;
+		}
 		if( $exponential_fit ){
 			# un-log the coefficients
 			$_->[1] = exp($_->[1]) for @{$fitparams{'params'}};
 		}
-		$ret{$k} = [$square_residual, $fitparams{'params'}];
 
-		if( $DEBUG > 0 ){
-			$tree =  Math::Symbolic->parse_from_string($formula); 
-			# we need this so that we print the formula with the params
-			for(@{$fitparams{'params'}}){
-				print "coefficient '".$_->[0]."' = ".$_->[1]."\n";
-				$tree->implement($_->[0] => $_->[1]);
+		$tree =  Math::Symbolic->parse_from_string($formula); 
+		# we need this so that we print the formula with the params
+		for(@{$fitparams{'params'}}){
+			if( $debug > 1 ){ print "coefficient '".$_->[0]."' = ".$_->[1]."\n" }
+			$tree->implement($_->[0] => $_->[1]);
+		}
+		my $equation_str = "$tree";
+		my $model = Statistics::Covid::Analysis::Model->new({
+			'error' => $square_residual,
+			'coefficients' => { map { $_->[0] => $_->[1] } @{$fitparams{'params'}} },
+			'equation' => $formula,
+			'X' => $X,
+			'Y' => $Y
+		});
+		if( ! defined $model ){ warn "error, call to ".'Statistics::Covid::Analysis::Model::Simple->new()'." has failed."; return undef }
+		$ret{$k} = $model;
+		if( $debug > 0 ){
+			if( $debug > 1 ){
+				my ($sub) = Math::Symbolic::Compiler->compile($tree);
+				print STDOUT "# x\ty\tpredicted-y\n";
+				for (0 .. $N-1){
+					$x = $dfk->{$X}->{'data'}->[$_];
+					$y = $dfk->{$Y}->{'data'}->[$_];
+					print STDOUT join("\t",
+						$x,
+						$y,
+						$sub->($x)
+						)."\n"
+					;
+				}
+				my $formstr = $equation_str; $formstr =~ s/\^/**/g; # convert ^ to perl's **
+				warn "Fitted column '$k' with $N data points.\nMean square residual error: $square_residual.\nThis is the formula:\n$formstr";
 			}
-			my ($sub) = Math::Symbolic::Compiler->compile($tree);
-			print STDOUT "# x\ty\tpredicted-y\n";
-			for $i (0 .. $N-1){
-				$x = $dfk->{$X}->[$i];
-				$y = $dfk->{$Y}->[$i];
-				print STDOUT join("\t",
-					$x,
-					$y,
-					$sub->($x)
-					)."\n"
-				;
-			}
-			my $formstr = "$tree"; $formstr =~ s/\^/**/g; # convert ^ to perl's **
-			warn "Fitted column '$k' with $N data points.\nMean square residual error: $square_residual.\nThis is the formula:\n$formstr";
+			print "fit() : done fitted $formula_name_str : '$X'-'$Y' over $N data points in ".(time-$ts)." seconds.\n";
 		}
 	}
 	return \%ret
@@ -221,7 +274,7 @@ Statistics::Covid::Analysis::Model::Simple - Fits the data to various models
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 =head1 DESCRIPTION
 
@@ -246,13 +299,23 @@ or an exponential (C<c0 * c1^x>) model.
 	# retrieve data from DB for selected locations (in the UK)
 	# data will come out as an array of Datum objects sorted wrt time
 	# (the 'datetimeUnixEpoch' field)
-	my $objs = $covid->select_datums_from_db_for_specific_location_time_ascending(
-		#{'like' => 'Ha%'}, # the location (wildcard)
-		['Halton', 'Havering'],
-		#{'like' => 'Halton'}, # the location (wildcard)
-		#{'like' => 'Havering'}, # the location (wildcard)
-		'UK', # the belongsto (could have been wildcarded)
-	);
+	my $objs = $covid->select_datums_from_db_time_ascending({
+		'conditions' => {
+			# see L<https://metacpan.org/pod/SQL::Abstract#WHERE-CLAUSES>
+			#name => {'like' => 'Ha%'}, # the location (wildcard)
+			name => ['Halton', 'Havering'],
+			#name => {'like' => 'Halton'}, # the location (wildcard)
+			#name => {'like' => 'Havering'}, # the location (wildcard)
+			belongsto => 'UK', # the belongsto (could have been wildcarded)
+			# any other fields?
+			'confirmed' => {'>'=>1000},
+		},
+		# or specify the whole condition beast in SQL::Abstract lingo
+		# conditions => {'name' => {like=>'Ha%'}, 'confirmed' => {'>'=>1000}}
+
+		# optionally limit the number of rows returned
+		'attributes' => {'rows' => 10}
+	});
 	# create a dataframe
 	my $df = Statistics::Covid::Utils::datums2dataframe({
 		'datum-objs' => $objs,
@@ -262,7 +325,7 @@ or an exponential (C<c0 * c1^x>) model.
 	# convert all 'datetimeUnixEpoch' data to hours, the oldest will be hour 0
 	for(sort keys %$df){
 		Statistics::Covid::Utils::discretise_increasing_sequence_of_seconds(
-			$df->{$_}->{'datetimeUnixEpoch'}, # in-place modification
+			$df->{$_}->{'datetimeUnixEpoch'}->{'data'}, # in-place modification
 			3600 # seconds->hours
 		)
 	}
@@ -275,7 +338,7 @@ or an exponential (C<c0 * c1^x>) model.
 		'initial-guess' => {'c1'=>1, 'c2'=>1}, # initial values guess
 		'exponential-fit' => 1,
 		'fit-params' => {
-			'maximum_iterations' => 100000
+			'max_iterations' => 100000
 		}
 	});
 
@@ -288,7 +351,7 @@ or an exponential (C<c0 * c1^x>) model.
 		'initial-guess' => {'c1'=>1, 'c2'=>1},
 		'polynomial-fit' => 10, # max power of x is 10
 		'fit-params' => {
-			'maximum_iterations' => 100000
+			'max_iterations' => 100000
 		}
 	});
 
@@ -302,7 +365,7 @@ or an exponential (C<c0 * c1^x>) model.
 		'initial-guess' => {'c1'=>1, 'c2'=>1},
 		'formula' => 'c1*sin(x) + c2*cos(x)',
 		'fit-params' => {
-			'maximum_iterations' => 100000
+			'max_iterations' => 100000
 		}
 	});
 
@@ -465,7 +528,8 @@ where key=group-name, and
 =head1 EXPORT
 
 None by default. But C<Statistics::Covid::Analysis::Model::Simple::fit()>
-is the sub to call. Also the C<$DEBUG> can be set to 1 or more
+is the sub to call. Also the C<$Statistics::Covid::Analysis::Model::Simple::DEBUG>
+can be set to 1 or more
 for more verbose output, like C<$Statistics::Covid::Analysis::Model::Simple::DEBUG=1;>
 
 =head1 SEE ALSO
@@ -545,7 +609,7 @@ Almaz
 
 =over 2
 
-=item L<John Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
+=item L<Johns Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
 
 =item L<UK government|https://www.gov.uk/government/publications/covid-19-track-coronavirus-cases>,
 

@@ -1,6 +1,6 @@
 package Statistics::Covid::Version;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
@@ -12,7 +12,7 @@ use Statistics::Covid::Version::Table;
 
 use DateTime;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 # our constructor which calls parent constructor first and then does
 # things specific to us, like dates
@@ -20,13 +20,18 @@ our $VERSION = '0.23';
 # of name=>value or as an array which must have as many elements
 # as the 'db-columns' items and in this order.
 sub	new {
-	my ($class, $params) = @_;
-	$params = {} unless defined $params;
+	my ($class, $colNameValuePairs, $otherparams) = @_;
+	$colNameValuePairs = {} unless defined $colNameValuePairs;
+	$otherparams = {} unless defined $otherparams; 
 
 	my $parent = ( caller(1) )[3] || "N/A";
 	my $whoami = ( caller(0) )[3];
 
-	my $self = $class->SUPER::new($Statistics::Covid::Version::Table::SCHEMA, $params);
+	my $self = $class->SUPER::new(
+		$Statistics::Covid::Version::Table::SCHEMA,
+		$colNameValuePairs,
+		$otherparams
+	);
 	if( ! defined $self ){ warn "error, call to $class->new() has failed."; return undef }
 
 	return $self
@@ -38,6 +43,13 @@ sub	new {
 # returns 0 if self is same as input
 # returns -1 if input is bigger than self
 # we compare only markers, we don't care about any other fields
+# note that self is Statistics::Covid::Version
+# and another is Statistics::Covid::Schema::Result::Version
+# if you want to get the name of a column for which there is
+# no getter, use
+# Statistics::Covid::Version::column_name('terminal')
+# and
+# Statistics::Covid::Schema::Result::Version::get_column('terminal')
 sub	newer_than {
 	my $self = $_[0];
 	my $inputObj = $_[1];
@@ -68,8 +80,10 @@ sub	author_email {
 	$self->{'c'}->{'authoremail'} = $m;
 	return $m;
 }
+# use it like Statistics::Covid::Version->make_random_object(optional-seed)
 sub	make_random_object {
-	srand $_[0] if defined $_[0];
+	my $class = $_[0];
+	srand $_[1] if defined $_[1];
 
 	my $random_name = join('', map { chr(ord('a')+int(rand(ord('z')-ord('a')))) } (1..10));
 	my $datum_params = {
@@ -77,7 +91,7 @@ sub	make_random_object {
 	'authoremail' => 'abc@abc.com',
 	'authorname' => 'andreas',
 	};
-	my $obj = Statistics::Covid::Version->new($datum_params);
+	my $obj = __PACKAGE__->new($datum_params);
 	if( ! defined $obj ){ warn "error, call to ".'Statistics::Covid::Version->new()'." has failed."; return undef }
 	return $obj
 }

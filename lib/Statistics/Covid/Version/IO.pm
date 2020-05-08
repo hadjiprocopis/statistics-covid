@@ -1,6 +1,6 @@
 package Statistics::Covid::Version::IO;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
@@ -17,7 +17,7 @@ use Statistics::Covid::Version;
 use Statistics::Covid::Version::Table;
 use Statistics::Covid::Schema;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 # new method inherited but here we will create one
 # to be used as a factory

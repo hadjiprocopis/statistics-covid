@@ -1,21 +1,24 @@
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 use ExtUtils::MakeMaker;
 
 WriteMakefile(
-#   INSTALL_BASE	 => "$ENV{HOME}/usr",
+   INSTALL_BASE	 => "$ENV{HOME}/usr",
 	NAME		 => 'Statistics::Covid',
 	AUTHOR		 => q{Andreas Hadjiprocopis <bliako@cpan.org> / <andreashad2@gmail.com>},
 	VERSION_FROM	 => 'lib/Statistics/Covid.pm',
 	ABSTRACT_FROM	=> 'lib/Statistics/Covid.pm',
 	LICENSE		 => 'artistic_2',
 	EXE_FILES		=> [qw|
-	script/statistics-covid-fetch-data-and-store.pl
-	script/db-search-and-make-new-db.pl
+	  script/statistics-covid-fetch-data-and-store.pl
+	  script/db-search-and-make-new-db.pl
+	  script/statistics-covid-plot-data-and-fit-model.pl
+	  script/datasets-worldbank-fetch-data-and-store.pl
+	  script/statistics-covid-select-data.pl
 	|],
 	PL_FILES		 => {},
-	MIN_PERL_VERSION => '5.006',
+	MIN_PERL_VERSION => '5.10.0',
 	CONFIGURE_REQUIRES => {
 	'ExtUtils::MakeMaker' => '0',
 	},
@@ -38,26 +41,60 @@ WriteMakefile(
 	'Math::Symbolic' => '0.6',
 	'Algorithm::CurveFit' => '1.0',
 
-	'Chart::Clicker' => '0',
+	# there was a failed test from CPAN testers about
+# Attribute (height) does not pass the type constraint because: Validation failed for 'Num' with value undef at constructor Geometry::Primitive::Rectangle::new
+# https://www.cpantesters.org/cpan/report/9b193e91-6bf5-1014-8029-9d0e769d6210
+	# So use the latest version of Chart::Clicker (sorry)
+	'Chart::Clicker' => '2.90',
 	'DateTime' => '0',
 	'DateTime::Format::Strptime' => '0',
 	'Getopt::Long' => '0',
+	'Data::Dumper::AutoEncode' => '0',
 	'File::Basename' => '0',
 	'File::Find' => '0',
 	'File::Copy' => '0',
 	'File::Path' => '0',
 	'File::Temp' => '0',
 	'File::Spec' => '0',
+	'Locale::Country' => '3.63',
+	'HTTP::Headers' => '0',
+	'HTTP::Request' => '0',
 	'LWP::UserAgent' => '0',
 	'HTTP::CookieJar::LWP' => '0',
-	'JSON::Parse' => '0',
+	'WWW::Github::Files' => '0',
+	'Text::CSV_XS' => '0',
+	'IO::Uncompress::Unzip' => '0',
+	'Encode' => '0',
+	'JSON' => '0',
 	'Storable' => '0',
 	'Data::Dump' => '0',
-	'Try::Tiny' => '0',
+	'Data::Undump' => '0',
 	'Getopt::Long' => '0',
+	'Data::Roundtrip' => '0.04',
+	'XML::Twig' => '3.52',
 	},
 
 	dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
+
+	# Thanks to marto @ Perlmonks.org
+	# see https://perlmonks.org/?displaytype=displaycode;node_id=359256;part=1;abspart=1
+    META_MERGE => {
+        'meta-spec' => { version => 2 },
+	requires    => { perl    => '5.10.0' },
+        resources   => {
+            license    => 'artistic_2',
+	    homepage   => 'https://metacpan.org/module/Statistics::Covid',
+            repository => {
+                url  => 'https://github.com/hadjiprocopis/statistics-covid',
+                web  => 'https://github.com/hadjiprocopis/statistics-covid',
+                type => 'git',
+            },
+            bugtracker => {
+                web => 'https://github.com/hadjiprocopis/statistics-covid/issues',
+            }
+        },
+    },
+
 	clean => { FILES => 'Statistics-Covid-UK-*' },
 	postamble => {
 		BENCHMARK_FILES => 'xt/benchmarks/*.b',

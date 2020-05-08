@@ -1,92 +1,291 @@
 package Statistics::Covid::Analysis::Plot::Simple;
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
 use Statistics::Covid::Datum;
 use Statistics::Covid::Utils;
 
+# this takes ages to load!
 use Chart::Clicker;
 use Chart::Clicker::Axis::DateTime;
 use Chart::Clicker::Data::DataSet;
 use Chart::Clicker::Data::Series;
+use Chart::Clicker::Decoration::Annotation;
+use Chart::Clicker::Data::Range;
+use Chart::Clicker::Drawing::ColorAllocator;
 
-our $VERSION = '0.23';
+use Data::Dump qw/pp/;
+
+our $VERSION = '0.24';
 
 our $DEBUG = 0;
 
 sub	plot {
 	my $params = $_[0];
+
 	# an array of column names to be used for grouping the data
-	my $GroupBy = defined($params->{'GroupBy'}) ? $params->{'GroupBy'} : ['name'];
+	my $GroupBy = defined($params->{'GroupBy'})
+		? $params->{'GroupBy'} : ['name'];
+
+	my $debug = exists($params->{'debug'}) && defined($params->{'debug'})
+		? $params->{'debug'} : $DEBUG;
+
 	# and then for all that data groupped, plot just a single variable, the Y
-	my $Y = exists($params->{'Y'}) && defined($params->{'Y'}) ? $params->{'Y'} : 'confirmed';
+	my $Y = exists($params->{'Y'}) && defined($params->{'Y'})
+		? $params->{'Y'} : 'confirmed';
 
 	# optional X, default is time (e.g. datetimeUnixEpoch)
-	my $X = exists($params->{'X'}) && defined($params->{'X'}) ? $params->{'X'} : 'datetimeUnixEpoch';
+	my $X = exists($params->{'X'}) && defined($params->{'X'})
+		? $params->{'X'} : 'datetimeUnixEpoch';
+
+	my $Xstr;
+	if( $X eq 'datetimeUnixEpoch' ){ $Xstr = 'time' } else { $Xstr = $X }
+	# optional title, default is nothing
+	my $title = exists($params->{'title'}) && defined($params->{'title'})
+		? $params->{'title'} : "$Xstr vs $Y";
+
+	# optional with-legend? for plots with lots of groups it takes over the display!
+	my $with_legend = exists($params->{'with-legend'}) && defined($params->{'with-legend'})
+		? $params->{'with-legend'} : 1;
+
+	# optional width and height with defaults
+	my $width = exists($params->{'width'}) && defined($params->{'width'})
+		? $params->{'width'} : 1024;
+	# optional X, default is time (e.g. datetimeUnixEpoch)
+	my $height = exists($params->{'height'}) && defined($params->{'height'})
+		? $params->{'height'} : 768;
+	# optional, labels avoidance factors
+	my $labels_avoid_margins_factor = exists($params->{'labels-avoid-margins-factor'}) && defined($params->{'labels-avoid-margins-factor'})
+		? $params->{'labels-avoid-margins-factor'} : 30/100;
+	my $labels_avoid_other_labels_factor = exists($params->{'labels-avoid-other-labels-factor'}) && defined($params->{'labels-avoid-other-labels-factor'})
+		? $params->{'labels-avoid-other-labels-factor'} : 30;
+
+	# optionally specify a minimum number of data points before plotting
+	my $min_points = exists($params->{'min-points'}) && defined($params->{'min-points'})
+		? $params->{'min-points'} : 1
+	;
 
 	# optionally specify date-formatting for X-axis (expecting X to be seconds since unix epoch)
-	my $dateformatX = (
-		   (exists($params->{'date-format-x'}) && defined($params->{'date-format-x'}))
-		|| ($X eq 'datetimeUnixEpoch')
-	)  ? $params->{'date-format-x'} :
-			{ # this is what we expect from 'date-format-x'
-				format => '%d/%m',
-				position => 'bottom',
-				orientation => 'horizontal'
-			}
-	;
-	if( (ref($dateformatX) ne 'HASH') || ! exists($dateformatX->{'format'}) ){ warn "error, something wrong with the specified 'date-format-x'. It must be a hashref and contain at least a 'format' key, see Chart::Clicker::Axis::DateTime for what options the datetime formatting takes."; return undef }
+	my $dateformatX = undef;
+	if( exists($params->{'date-format-x'}) && defined($params->{'date-format-x'}) ){
+		if( (ref($params->{'date-format-x'}) eq 'HASH') && exists($params->{'date-format-x'}->{'format'}) ){
+			$dateformatX = $params->{'date-format-x'}
+		} else { warn "error, 'date-format-x' must be a hashref and contain at least the 'format' key, see L<Chart::Clicker::Axis::DateTime> and L<Chart::Clicker::Axis> for the spec. 'date-format-x' was not recognised: ".pp($params->{'date-format-x'}); return undef }
+	} elsif( $X eq 'datetimeUnixEpoch' ){
+		# set default params for Chart::Clicker::Axis::DateTime
+		$dateformatX = {
+			format => '%d/%m(%Hhr)',
+			position => 'bottom',
+			orientation => 'horizontal'
+		}
+	}
 
 	my $outfile;
 	if( ! exists($params->{'outfile'}) || ! defined($outfile=$params->{'outfile'}) ){ warn "error, no output file specified (via '$outfile')."; return undef }
 
 	my $df = undef;
 	if( exists($params->{'datum-objs'}) && defined($params->{'datum-objs'}) ){
-		# create a data frame to plot those columns with groupby on the same line
-		$df = Statistics::Covid::Utils::datums2dataframe({
-			'datum-objs' => $params->{'datum-objs'},
-			'groupby' => $GroupBy,
-			'content' => [$X, $Y],
-		});
+		warn "datum-objs no longer supported, add a dataframe instead ('dataframe'), see Statistics::Covid for how to do this.";
+		return undef
 	} elsif( exists($params->{'dataframe'}) && defined($params->{'dataframe'}) ){
 		$df = $params->{'dataframe'};
-	} else { warn "error, no data specified (either via 'datum-objs' or 'dataframe')."; return undef }
-	if( ! defined $df ){ warn "error, call to ".'Statistics::Covid::Utils::datums2dataframe()'." has failed.\n"; return undef }
-
-	my $numobjs = scalar keys %$df;
-	if( $DEBUG > 0 ){ warn "plotting $numobjs datums ...\n" }
-
-	my @series;
-	for my $k (sort keys %$df){
-		# we have asked to have x-axis as time and y-axis as $Y (user specified)
-		my $aseries = Chart::Clicker::Data::Series->new(
-			keys   => $df->{$k}->{$X},
-			values => $df->{$k}->{$Y},
-			name   => $k
-		);
-		if( ! defined $aseries ){ warn "error, call to ".'Chart::Clicker::Data::Series->new()'." has failed.\n"; return undef }
-		push @series, $aseries
 	}
+	if( ! defined $df ){ warn "error, no data specified (via 'dataframe')."; return undef }
+
+	# automatically give us colors, thank you
+	my $ColorPicker = Chart::Clicker::Drawing::ColorAllocator->new({seed_hue => 0});
+	# this is where we save the colors we automatically get
+	# the complication is that some plots must be with the same color
+	# because they belong the same group.
+	my $ColorAllocator = Chart::Clicker::Drawing::ColorAllocator->new();
+	$ColorAllocator->clear_colors();
+
+	# X will be only in 'data'
+	my (@series, @series_labels, $dfkX, $dfkXdata, $good, $N,
+	    $dfkY, $dfkYdata, $i, $x, $y, $Xmin, $Ymin, $Ymax, $label_str,
+	    $arange, $Ysens, $Xsens, $badX, $badY, $acolor, $aseries
+	);
+	my $LW = $width * $labels_avoid_margins_factor; my $LH = $height * $labels_avoid_margins_factor;
+	# the minus is to account for text width and height
+	my $UW = ($width-30) * (1-$labels_avoid_margins_factor); my $UH = ($height-5) * (1-$labels_avoid_margins_factor);
+	for my $k (sort keys %$df){ # the group-name (e.g. country name)
+		# pick a color for all the plots of that key
+		$acolor = $ColorPicker->next(); if( ! defined $acolor ){ $ColorPicker->reset(); $acolor = $ColorPicker->next() }
+		$dfkY = $df->{$k}->{$Y};
+		$dfkX = $df->{$k}->{$X};
+		$dfkXdata = $dfkX->{'data'};
+		$N = scalar @$dfkXdata;
+		if( $N < $min_points ){
+			warn "$k :  warning, number of data rows ($N) is less than the minimum number specified ($min_points) and will skip plotting this scenario";
+			next
+		}
+		$Xmin = $dfkXdata->[0];
+		# range of the x-axis
+		$Xsens = ($dfkXdata->[$N-1] - $dfkXdata->[0]) / $width;
+		#print "$k: keys: ".join(",", keys %$dfkY)."\nDoing group '$k' with $N time points and ".scalar(@{$dfkY->{'data'}})." and ".scalar(@{$dfkY->{'fitted-exponential-fit'}})."\n";
+		for my $kk (sort keys %$dfkY){ # the entry, e.g. data or 'fitted-*'
+			# we have asked to have x-axis as time and y-axis as $Y (y is user specified)
+			$dfkYdata = $dfkY->{$kk};
+			#print "Doing group '$k' with $N time points which has kk=$kk ".scalar(@$dfkYdata)."\n";
+			die "counts for X($N) and Y(".scalar(@$dfkYdata).") data differ for '$k/$kk'"
+				unless $N==scalar(@$dfkYdata)
+			;
+			eval {
+				$aseries = Chart::Clicker::Data::Series->new(
+					keys   => $dfkXdata,
+					values => $dfkYdata,
+					name   => $k
+				);
+			};
+			if( $@ || ! defined $aseries ){ warn "Xdata:\n".pp($dfkXdata)."\nYdata:\n".pp($dfkYdata)."\nerror, call to ".'Chart::Clicker::Data::Series->new()'." has failed for dataframe entry '$k' (see above content)".(defined($@)?': '.$@:".")."\n";return undef }
+
+			$arange = $aseries->range();
+			$Ymin = $arange->lower();
+			$Ymax = $arange->upper();
+			$Ysens = ($Ymax-$Ymin) / $height; 
+
+			# no variation but we needed to calculate the series to reach at this point
+			if( $Xsens < 1E-12 ){ 
+				warn "$k/$kk : no variation along X ($X).";
+				next
+			}
+			if( $Ysens < 1E-12 ){ 
+				warn "$k/$kk : no variation along Y ($Y).";
+				next
+			}
+			# data will be plotted when pushed in here:
+			push @series, $aseries;
+			$ColorAllocator->add_to_colors($acolor);
+			$acolor = Statistics::Covid::Utils::make_lighter_color_rgb($acolor, 0.33);
+
+			# here we add a label to the curve.
+			# The problem is to find a place not to overlap other labels
+			# this is very basic and very buggy:
+			# major TODO!
+			# skip labels for N<2
+			if( $N < 2 ){ $good = 0; goto GOOD } else { $good = scalar(@series_labels)==0 }
+
+			#if( $kk ne 'data' ){ next } # put only labels for curves of 'data'
+
+			PICK:
+			for($i=$N;$i-->0;){
+				$x = $dfkXdata->[$i]; $y = $dfkYdata->[$i];
+				$badX = ($x-$Xmin)/$Xsens; $badY = ($y-$Ymin)/$Ysens;
+				if( $debug > 2 ){ warn "PICK labels: x=$x, y=$y, badX=$badX, badY=$badY, checking if $badX < $LW or $badY < $LH or $badX > $UW or $badY > $UH" }
+				if(  ($badX < $LW)
+				  || ($badY < $LH)
+				){ next }
+				if(  ($badX > $UW)
+				  || ($badY > $UH)
+				){ next }
+				for my $alabel (@series_labels){
+					if( (abs($alabel->{x}-$x)>$labels_avoid_other_labels_factor*$Xsens)
+					 && (abs($alabel->{y}-$y)>$labels_avoid_other_labels_factor*$Ysens)
+					){
+						if( $debug > 2 ){ warn "FOUND a good placement for labels: x=$x, y=$y, badX=$badX, badY=$badY, checking if $badX < $LW or $badY < $LH or $badX > $UW or $badY > $UH" }
+						$good=1;
+						last PICK
+					}
+				}
+				if( $good ){ last PICK }
+			}
+			GOOD:
+			if( $good == 0 ){
+				$i = int(rand($N));
+				$x = $dfkXdata->[$i]; $y = $dfkYdata->[$i];
+				if($N>1){ warn "warning, failed to find space for label for '$k/$kk' and goes to ($x,$y). That's OK that happens." }
+				if( $debug > 2 ){ warn "$k/$kk : all tests for label constraints failed, placing one at random at ($x,$y)" }
+			} else { if( $debug > 2 ){ warn "$k/$kk : picked labels OK" } }
+
+			if( $kk =~ /^fitted\-(.{3})/ ){
+				$label_str = $k.'-'.$1
+			} else { $label_str = $k }
+			$label_str =~ s/\Q${Statistics::Covid::Utils::DATAFRAME_KEY_SEPARATOR}\E+//g;
+			push @series_labels, {
+				'x' => $x,
+				'y' => $y,
+				'k' => $k,
+				'kk' => $kk,
+				't' => $label_str #$k, #$k.'/'.$kk
+			};
+			if( $debug > 2 ){ warn "$k/$kk : placed the label at ($x,$y)" }
+		}
+	}
+	if( scalar(@series) == 0 ){
+		warn pp($df)."\nwarning, nothing to plot for above dataframe!";
+		return ''
+	}
+
 	my $dataset = Chart::Clicker::Data::DataSet->new(series => \@series);
 
 	if( ! defined $dataset ){ warn "error, call to ".' Chart::Clicker::Data::DataSet->new()'." has failed.\n"; return undef }
 
-	my $clicker = Chart::Clicker->new(width => 500, height => 400);
+	my $clicker = Chart::Clicker->new(width => $width, height => $height);
 	if( ! defined $clicker ){ warn "error, call to ".' Chart::Clicker->new()'." has failed.\n"; return undef }
+	$clicker->title->text($title) if $title;
+	$clicker->legend->visible($with_legend);
 	$clicker->add_to_datasets($dataset);
+	$clicker->color_allocator($ColorAllocator);
 
 	my $context = $clicker->get_context('default');
 	if( ! defined $context ){ warn "error, call to get_context() has failed."; return undef }
 
-	$context->domain_axis(Chart::Clicker::Axis::DateTime->new($dateformatX))
-		if $dateformatX;
-	
-	$context->range_axis->format('%.0f');
+	# X-axis setup:
+	if( $dateformatX ){
+		$context->domain_axis(Chart::Clicker::Axis::DateTime->new($dateformatX))
+	} else {
+		$context->domain_axis->format('%.0f')
+	}
 	#$context->domain_axis->hidden(1);
-	#$context->domain_axis->ticks(scalar @{$df->{$_}->{$Y}});
-	if( ! $clicker->write_output($outfile) ){ warn "error, call to write_output() has failed for output file '$outfile'.\n"; return undef }
+	#$context->domain_axis->ticks(scalar @{$df->{$_}->{$Y}->{'data'}});
+
+	# Y-axis setup (range-axis: that's the y-axis for you and me)
+	$context->range_axis->format('%.0f');
+
+	# draw the points with this circle
+	$context->renderer->shape(
+		Geometry::Primitive::Circle->new({
+			radius => 3,
+		})
+	);
+	$context->renderer->shape_brush(
+		Graphics::Primitive::Brush->new(
+			width => 2,
+			color => Graphics::Color::RGB->new(red => 1, green => 1, blue => 1)
+		)
+	);
+	$context->renderer->brush->width(2);
+
+	# put a label for this set of plots, question is where?
+	for (@series_labels){
+		# TODO remove this when tested hard
+		my $rc = eval {
+			$clicker->add_to_over_decorations(
+			  Chart::Clicker::Decoration::Annotation->new(
+				key => $_->{x},
+				value => $_->{y},
+				text => $_->{t},
+				context => 'default',
+			  )
+			);
+			1;
+		};
+		if( !$rc ){ die "error, call to ".'Chart::Clicker::Decoration::Annotation->new()'." has failed for this label:\n".pp($_) }
+	}
+
+	# and plot to file, trapping exceptions (i think it throws exceptions? return value didn't say anything):
+	my $rc = eval { $clicker->write_output($outfile); 1 };
+	if( $@ || ! defined($rc) ){
+		# test fails here and don't know why
+		warn "dataframe for X=$X:\n".pp($df);
+		warn "dateformatX for X=$X:\n".pp($dateformatX);
+		warn "driver is ".$clicker->driver."\n";
+		warn "driver size is w=".$clicker->driver->width.", h=".$clicker->driver->height."\n";
+		warn "error, call to write_output() has failed (exception caught: '".(defined($@)?$@:'<na>')."') for output file '$outfile'.\n";
+		return undef
+	}
 	return $outfile # success, return the output image file
 }
 1;
@@ -102,7 +301,7 @@ Statistics::Covid::Analysis::Plot::Simple - Plots data
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 =head1 DESCRIPTION
 
@@ -129,7 +328,8 @@ L<Statistics::Covid::Datum> objects using L<Chart::Clicker>.
 		['Halton', 'Havering'],
 		#{'like' => 'Halton'}, # the location (wildcard)
 		#{'like' => 'Havering'}, # the location (wildcard)
-		'UK', # the belongsto (could have been wildcarded)
+		# the belongsto (could have been wildcarded) or undef for anything (not blank!)
+		'UK',
 	);
 	# create a dataframe
 	$df = Statistics::Covid::Utils::datums2dataframe({
@@ -144,7 +344,7 @@ L<Statistics::Covid::Datum> objects using L<Chart::Clicker>.
 		'content' => ['confirmed', 'unconfirmed', 'datetimeUnixEpoch'],
 	});
 
-	# plot confirmed vs time
+	# plot time vs confirmed
 	$ret = Statistics::Covid::Analysis::Plot::Simple::plot({
 		'dataframe' => $df,
 		# saves to this file:
@@ -152,6 +352,9 @@ L<Statistics::Covid::Datum> objects using L<Chart::Clicker>.
 		# plot this column against X
 		# (which is not present and default is time ('datetimeUnixEpoch')
 		'Y' => 'confirmed',
+		# width and height have sane defaults so these are optional:
+		'width' => 500,
+		'height' => 500,
 	});
 
 	# plot confirmed vs unconfirmed
@@ -234,9 +437,6 @@ Plots data to specified file using L<Chart::Clicker>. The input data
 is either an array of L<Statistics::Covid::Datum> objects or
 a dataframe (as created by L<Statistics::Covid::Utils::datums2dataframe>
 (see the SYNOPSIS for examples).
-xxx
-
-
 	
 =head1 AUTHOR
 	
@@ -304,7 +504,7 @@ Almaz
 
 =over 2
 
-=item L<John Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
+=item L<Johns Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
 
 =item L<UK government|https://www.gov.uk/government/publications/covid-19-track-coronavirus-cases>,
 

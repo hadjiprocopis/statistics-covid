@@ -1,11 +1,11 @@
 package Statistics::Covid;
 use lib 'blib/lib';
 
-use 5.006;
+use 5.10.0;
 use strict;
 use warnings;
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use Statistics::Covid::Utils;
 use Statistics::Covid::Datum;
@@ -25,48 +25,82 @@ sub	new {
 	my $whoami = ( caller(0) )[3];
 
 	my $self = {
-		'save-to-file' => 1,
-		'save-to-db' => 1,
+		# these are one for each provider:
+		'save-to-file' => {},
+		'save-to-db' => {},
 		'debug' => 0,
 		# internal variables,
 		'p' => {
+			# a hash to hold the providers providername => providerobj (which we create here)
 			'provider-objs' => undef,
 			'config-hash' => undef,
-			'datum-io' => undef,
+			'io-datum' => undef,
 			'db-version' => undef,
+			# pass extra params to each provider
+			# the params is a hashref keyed on provider name
+			'provider-extra-params' => undef,
 		},
 	};
 	bless $self => $class;
 
+	my $m;
+
 	if( exists $params->{'debug'} ){ $self->debug($params->{'debug'}) }
 	my $debug = $self->debug();
-	if( exists $params->{'save-to-file'} ){ $self->save_to_file($params->{'save-to-file'}) }
-	if( exists $params->{'save-to-db'} ){ $self->save_to_db($params->{'save-to-db'}) }
 
-	my $m;
 	my $config_hash = undef;
 	if( exists($params->{'config-file'}) && defined($m=$params->{'config-file'}) ){
 		$config_hash = Statistics::Covid::Utils::configfile2perl($m);
-		if( ! defined $config_hash ){ warn "error, failed to read config file '$m'."; return undef }
+		if( ! defined $config_hash ){ warn "error, failed to read config file '$m'"; return undef }
 	} elsif( exists($params->{'config-string'}) && defined($m=$params->{'config-string'}) ){
 		$config_hash = Statistics::Covid::Utils::configstring2perl($m);
-		if( ! defined $config_hash ){ warn "error, failed to parse config string '$m'."; return undef }
+		if( ! defined $config_hash ){ warn "error, failed to parse config string '$m'"; return undef }
 	} elsif( exists($params->{'config-hash'}) && defined($m=$params->{'config-hash'}) ){ $config_hash = Storable::dclone($m) }
-	else { warn "error, configuration was not specified using one of 'config-file', 'config-string', 'config-hash'. For an example configuration file see t/example-config.t."; return undef }
+	else { warn "error, configuration was not specified using one of 'config-file', 'config-string', 'config-hash'. For an example configuration file see t/example-config.t"; return undef }
 	$self->config($config_hash);
 
-	if( exists($params->{'providers'}) && defined($m=$params->{'providers'}) ){
-		if( ! $self->providers($m) ){ warn "error, failed to install specified provider(s) (calling providers()) : '".join("','", @$m)."'."; return undef }
-	} else {
-		if( $debug > 0 ){ warn "warning, 'providers' (like 'UK::GOVUK' and/or 'World::JHU') was not specified, that's ok, but you must insert some before fetching any data - interacting with db will be ok." }
+	# optional params
+	# shall we save? (specific for each provider, default is yes)
+	# expects a hash of providername=>1 or 0 (for each provider)
+	# at this stage we don't know any providers yet!
+	# if nothing is specified, then when providers are set, we put default values (see below)
+	if( exists($params->{'save-to-file'}) && defined($params->{'save-to-file'}) ){
+		if( ref($params->{'save-to-file'}) ne 'HASH' ){ die "'save-to-file': a HASHref is needed" }
+		$self->save_to_file($_, $params->{'save-to-file'}->{$_})
+			for keys %{$params->{'save-to-file'}};
 	}
+	if( exists($params->{'save-to-db'}) && defined($params->{'save-to-db'}) ){
+		if( ref($params->{'save-to-db'}) ne 'HASH' ){ die "'save-to-db': a HASHref is needed" }
+		$self->save_to_db($_, $params->{'save-to-db'}->{$_})
+			for keys %{$params->{'save-to-db'}};
+	}
+
+	if( exists $params->{'save-to-db'} ){ $self->save_to_db($params->{'save-to-db'}) }
+	# extra params to pass to providers?
+	if( exists $params->{'provider-extra-params'} ){ $self->{'p'}->{'provider-extra-params'} = $params->{'provider-extra-params'} }
+	else { $self->{'p'}->{'provider-extra-params'} = {} }
 
 	for(keys %$params){
 		$self->{$_} = $params->{$_} if exists $self->{$_}
 	}
-	if( ! defined($self->{'p'}->{'datum-io'}=$self->_create_Datum_IO()) ){ warn "error, failed to create IO object."; return undef }
+	if( ! defined($self->{'p'}->{'io-datum'}=$self->_create_Datum_IO()) ){ warn "error, failed to create IO object"; return undef }
 
-	if( ! defined $self->version() ){ warn "error, failed to get the db-version."; return undef }
+	if( exists($params->{'providers'}) && defined($m=$params->{'providers'}) ){
+		if( ! $self->providers($m) ){ warn "error, failed to install specified provider(s) (calling providers()) : '".join("','", @$m)."'"; return undef }
+	} else {
+		if( $debug > 0 ){ warn "warning, 'providers' (like 'UK::GOVUK' and/or 'World::JHU') was not specified, that's ok, but you must insert some before fetching any data - interacting with db will be ok." }
+	}
+	# default values for save-to-file/db
+	for( @{$self->provider_names()} ){
+		# don't save to file if provider is a localdir, assumes localdir providers
+		# follow this special name pattern, e.g. JHUlocaldir
+		$self->{'save-to-file'}->{$_} = 1
+		  unless ($_=~/localdir$/) || exists($self->{'save-to-file'}->{$_})
+		;
+		$self->{'save-to-db'}->{$_} = 1 unless exists $self->{'save-to-db'}->{$_};
+	}
+
+	if( ! defined $self->version() ){ warn "error, failed to get the db-version"; return undef }
 	if( $debug > 0 ){ warn "db-version: ".$self->version() }
 
 	return $self
@@ -74,9 +108,9 @@ sub	new {
 sub	DESTROY {
 	# disconnect just in case, usually this is not required
 	my $self = $_[0];
-	if( defined $self->{'p'}->{'datum-io'} ){
-		$self->{'p'}->{'datum-io'}->db_disconnect();
-		$self->{'p'}->{'datum-io'} = undef;
+	if( defined $self->datum_io() ){
+		$self->datum_io()->db_disconnect();
+		$self->{'p'}->{'io-datum'} = undef;
 	}
 }
 # fetch data from the providers and optionally save to file and/or db
@@ -89,29 +123,29 @@ sub	fetch_and_store {
 	my $debug = $self->debug();
 	my $num_fetched_total = 0;
 	my $providers = $self->providers();
-	if( ! defined $providers ){ warn "error, data providers must be inserted prior to using this, e.g. providers('World::JHU')."; return undef }
+	if( ! defined $providers ){ warn "error, data providers must be inserted prior to using this, e.g. providers('World::JHU')"; return undef }
 	for my $pn (keys %$providers){
 		my $providerObj = $providers->{$pn};
 		my $datas = $providerObj->fetch();
-		if( ! defined $datas ){ warn "$pn : error, failed to fetch()."; return undef }
+		if( ! defined $datas ){ warn "$pn : error, failed to fetch()"; return undef }
 		if( $debug > 0 ){ warn "$pn : fetched latest data OK." }
-		if( $self->save_to_file() ){
-			my $outbase = $providerObj->save_fetched_data_to_localfile($datas);
-			if( ! defined($outbase) ){ warn "error, failed to save the data just fetched to local file."; return undef }
-			if( $debug > 0 ){ warn "$pn : fetched data saved to local file, with this basename '$outbase'." }
-		}
+#		if( $self->save_to_file($pn) ){
+#			my $outbase = $providerObj->save_fetched_data_to_localfile($datas);
+#			if( ! defined($outbase) ){ warn "error, failed to save the data just fetched to local file"; return undef }
+#			if( $debug > 0 ){ warn "$pn : fetched data saved to local file, with this basename '$outbase'." }
+#		}
 		my $objs = $providerObj->create_Datums_from_fetched_data($datas);
-		if( ! defined $objs ){ warn "$pn : error, failed to processed fetched data and create Datum objects."; return undef }
+		if( ! defined $objs ){ warn "$pn : error, failed to processed fetched data and create Datum objects"; return undef }
 		push @retObjs, @$objs;
 		my $num_fetched = scalar @$objs;
 		$num_fetched_total += $num_fetched;
 		if( $debug > 0 ){ warn "$pn : fetched $num_fetched objects." }
-		if( $self->save_to_db() ){
-			my $io = $self->{'p'}->{'datum-io'};
+		if( $self->save_to_db($pn) ){
+			my $io = $self->datum_io();
 			my $rows_in_db_before = $io->db_count();
 			my $ret = $io->db_insert_bulk($objs);
 			my $rows_in_db_after = $io->db_count();
-			if( $debug > 0 ){ print STDOUT _db_insert_bulk_toString($ret, $rows_in_db_before, $rows_in_db_after) }
+			if( $debug > 0 ){ print STDOUT _db_insert_bulk_returnvalue_toString($ret, $rows_in_db_before, $rows_in_db_after) }
 			if( $ret->{'num-failed'} > 0 ){ warn "$pn : error, there were failed inserts into DB." }
 			my $dbfilename = $io->db_filename();
 			if( $dbfilename ne '' ){ print STDOUT "$pn : fetch_and_store() : saved data to database in '$dbfilename'.\n" }
@@ -125,10 +159,14 @@ sub	fetch_and_store {
 # returns a hashref of statistics on what happened with the insert
 # see L<Statistics::Covid::IO::Base::db_insert_bulk>() for details
 # returns undef on failure
-sub	db_datums_insert_bulk { return $_[0]->{'p'}->{'datum-io'}->db_insert_bulk($_[1]) }
+sub	db_datums_insert_bulk { return $_[0]->datum_io()->db_insert_bulk($_[1]) }
+
 # a shortcut to gettting the count of the Datum table,
+# optional hashref parameters can specify 'conditions' and 'attributes'
+# else it counts all rows in Datum table
+# and returns that count (can be zero)
 # returns -1 on failure
-sub	db_datums_count { return $_[0]->{'p'}->{'datum-io'}->db_count() }
+sub	db_datums_count { return $_[0]->datum_io()->db_count($_[0]) }
 
 # load datums from DB into our own internal storage (appending to whatever we already may have stored)
 # use clear() to empty thats storage.
@@ -140,35 +178,85 @@ sub	db_datums_count { return $_[0]->{'p'}->{'datum-io'}->db_count() }
 sub	select_datums_from_db {
 	my ($self, $params) = @_;
 
-	my $objs = $self->{'p'}->{'datum-io'}->db_select($params);
+	my $objs = $self->datum_io()->db_select($params);
 	if( ! defined $objs ){ warn pp($params)."\n\nerror, failed to load Datum objects from DB using above parameters."; return -1 }
 	return $objs
 }
 # shortcut to selecting datum objects from db (select_datums_from_db())
-# from a single location and ordering the results in time-ascending order.
-# it's useful for getting the timeline for a given place
+# with optional conditions (where clauses)
+# and ordering the results in time-ascending order.
+# it's useful for getting the timeline for a given place.
+# for conditions see https://metacpan.org/pod/SQL::Abstract#WHERE-CLAUSES
 # if successful, it returns an array of Datum objects (sorted on time)
 # it returns undef on failure
-sub	select_datums_from_db_for_specific_location_time_ascending {
+sub	select_datums_from_db_time_ascending {
 	my $self = $_[0];
-	# this can be an exact location name (case sensitive)
-	# OR it can be this {'like' => 'Ha%'}
-	# which does a wildcard search
-	my $location_condition = $_[1];
-	#optionally specify a 'belongsto' (e.g. UK)
-	# either exact or wildcard, like above
-	my $belongsto_condition = $_[2];
+	my $params = $_[1];
+	$params = {} unless defined $params;
 
-	my $conditions = {'name'=>$location_condition};
-	$conditions->{'belongsto'} = $belongsto_condition if defined $belongsto_condition;
+	# if no params given it will much everything in db and sort wrt time!
 
-	my $results = $self->select_datums_from_db({
-		'conditions' => $conditions,
-		'attributes' => {
-			'order_by' => {'-asc' => 'datetimeUnixEpoch'}
-		},
-	});
-	if( ! defined $results ){ warn "error, call to ".'select_datums_from_db()'." has failed."; return undef }
+	my $select_params = {};
+
+	# optionally specify the conditions:
+	# this is a hash of conditions, we can get this from input params
+	# or we can fill it in with specific conditions
+	# if specified, this must be a hashref of SQL::Abstract compatible
+	# search conditions mentioning the exact column names of the Datum table
+	if( exists($params->{'conditions'}) && defined($params->{'conditions'}) ){
+		$select_params->{'conditions'} = $params->{'conditions'};
+	}
+
+	# optionally specify the attributes, e.g. {'rows' => 10}
+	if( exists($params->{'attributes'}) && defined($params->{'attributes'}) ){
+		$select_params->{'attributes'} = $params->{'attributes'};
+	}
+	# set (can overwrite user-specific!)
+	$select_params->{'attributes'}->{'order_by'} = {'-asc' => 'datetimeUnixEpoch'};
+
+	my $results = $self->select_datums_from_db($select_params);
+	if( ! defined $results ){ warn pp($select_params)."\nerror, call to ".'select_datums_from_db()'." has failed for above conditions"; return undef }
+	return $results
+}
+# shortcut to selecting datum objects from db (select_datums_from_db())
+# with optional conditions (where clauses)
+# BUT returning the max(datetimeUnixEpoch) which is the latest
+# row for this query
+# for conditions see https://metacpan.org/pod/SQL::Abstract#WHERE-CLAUSES
+# if successful, it returns an array of Datum objects (sorted on time)
+# it returns undef on failure
+sub	select_datums_from_db_latest {
+	my $self = $_[0];
+	my $params = $_[1];
+	$params = {} unless defined $params;
+
+	# if no params given it will much everything in db and sort wrt time!
+
+	my $select_params = {};
+
+	# optionally specify the conditions:
+	# this is a hash of conditions, we can get this from input params
+	# or we can fill it in with specific conditions
+	# if specified, this must be a hashref of SQL::Abstract compatible
+	# search conditions mentioning the exact column names of the Datum table
+	if( exists($params->{'conditions'}) && defined($params->{'conditions'}) ){
+		$select_params->{'conditions'} = $params->{'conditions'};
+	}
+
+	# optionally specify the attributes, e.g. {'rows' => 10}
+	if( exists($params->{'attributes'}) && defined($params->{'attributes'}) ){
+		$select_params->{'attributes'} = $params->{'attributes'};
+	}
+	# TODO: append to '+select' and 'group_by' if user specifies them too
+	if( exists $select_params->{'attributes'}->{'+select'} ){ die "ooppps, 'attributes'->'+select' was specified, but I am using it and appending is not implemented, you are welcome to submit a patch" }
+	if( exists $select_params->{'attributes'}->{'group_by'} ){ die "ooppps, 'attributes'->'group_by' was specified, but I am using it and appending is not implemented, you are welcome to submit a patch" }
+	# TODO: the group_by is hardcoded
+	$select_params->{'attributes'}->{'group_by'} = ['admin0', 'admin1', 'admin2', 'admin3', 'admin4'];
+	$select_params->{'attributes'}->{'+select'} = [
+		{'max' => 'datetimeUnixEpoch'}
+	];
+	my $results = $self->select_datums_from_db($select_params);
+	if( ! defined $results ){ warn pp($select_params)."\nerror, call to ".'select_datums_from_db()'." has failed for above conditions"; return undef }
 	return $results
 }
 # read data from data file (original data as fetched by the scrapper)
@@ -193,9 +281,9 @@ sub	read_data_from_file {
 	my $debug = $self->debug();
 
 	my $providerstr;
-	if( ! exists($params->{'provider'}) || ! defined($providerstr=$params->{'provider'}) ){ warn "error, 'provider' was not specified."; return undef }
+	if( ! exists($params->{'provider'}) || ! defined($providerstr=$params->{'provider'}) ){ warn "error, 'provider' was not specified"; return undef }
 	my $providerObj = $self->providers($providerstr);
-	if( ! defined $providerObj ){ warn "provider does not exist in my list, you may need to load it if indeed the name is correct: '$providerstr'."; return undef }
+	if( ! defined $providerObj ){ warn "provider does not exist in my list, you may need to load it if indeed the name is correct: '$providerstr'"; return undef }
 
 	# optional list of basenames of data
 	# if this is missing then all files in the datafilesdir() of the provider specified
@@ -207,26 +295,41 @@ sub	read_data_from_file {
 		if( $r eq '' ){ @basenames = ($m) }
 		elsif( $r eq 'ARRAY' ){ @basenames = @{$m} }
 		else { warn "error, expected scalar string or arrayref for input 'basename' but got ".$r; return undef }
+		if( scalar(@basenames) == 0 ){
+			warn "no data files were specified for provider '$providerstr'.";
+			return () # not a failure
+		}
 	} else {
 		# no basenames specified, find them
 		my $datadir = $providerObj->datafilesdir();
 		# TODO : remove this check when stable
 		if( ! defined($datadir) ){ die "something wrong here, datafilesdir() is not specified for provider '$providerstr'." }
-		my $jsonfiles = Statistics::Covid::Utils::find_files($datadir, qr/\.json$/i);
-		@basenames = map { s/\.((data)|(meta))\.json$//; $_ } @$jsonfiles;
-	}
-	if( scalar(@basenames) == 0 ){
-		warn "no files were found or specified for provider '$$providerstr'.";
-		return () # not a failure
+		my $datafiles = Statistics::Covid::Utils::find_files(
+			$datadir,
+			# can be 2020-04-12T00.00.00_1586649600.data.json
+			# or 2020-04-12T00.00.00_1586649600.data.1.json
+			# (when multiple datafiles)
+			# or 2020-04-12T00.00.00_1586649600.metadata.json
+			[qr/\.(json|csv)$/i]
+		);
+		my %tmp;
+		for my $adatafile (@$datafiles){
+			$adatafile =~ s!\.(?:(?:data)|(?:meta))(?:\.\d+)?\.(?:json|csv)$!!;
+			$tmp{$adatafile} = 1;
+		}
+		if( scalar(keys %tmp) == 0 ){
+			warn "no data files were found for provider '$providerstr' in data dir '$datadir'.";
+			return () # not a failure
+		} else { @basenames = sort keys %tmp }
 	}
 	my @ret;
 	for my $abasename (@basenames){
 		my $datas = $providerObj->load_fetched_data_from_localfile($abasename);
-		if( ! defined $datas ){ warn "error, call to ".'load_fetched_data_from_localfile()'." has failed for provider '$providerstr' and data-file basename '$abasename'."; return undef }
+		if( ! defined $datas ){ warn "error, call to ".'load_fetched_data_from_localfile()'." has failed for provider '$providerstr' and data-file basename '$abasename'"; return undef }
 		# convert datas to datums
 		my $datumObjs = $providerObj->create_Datums_from_fetched_data($datas);
 		if( $debug > 0 ){ warn "read ".scalar(@$datumObjs)." items from basename '$abasename'.\n"; }
-		if( ! defined $datumObjs ){ warn "error, call to ".'create_Datums_from_fetched_data()'." has failed for provider '$providerstr' and data-file basename '$abasename'."; return undef }
+		if( ! defined $datumObjs ){ warn "error, call to ".'create_Datums_from_fetched_data()'." has failed for provider '$providerstr' and data-file basename '$abasename'"; return undef }
 		push @ret, @$datumObjs
 	}
 	if( $debug > 0 ){ warn "read ".scalar(@ret)." items in total for provider '$providerstr'." }
@@ -245,7 +348,7 @@ sub	read_data_from_files {
 	if( ! exists($params->{'what'}) || ! defined($params->{'what'}) ){
 		# nothing was provided in the input, we use ALL our providers loaded during construction
 		my $m = $self->providers();
-		if( ! defined $m ){ warn "error, data providers must be inserted prior to using this, e.g. providers('World::JHU')."; return undef }
+		if( ! defined $m ){ warn "error, data providers must be inserted prior to using this, e.g. providers('World::JHU')"; return undef }
 		@providerstrs = keys %$m;
 	} else {
 		# something was given at input
@@ -257,7 +360,7 @@ sub	read_data_from_files {
 				my $da = $self->read_data_from_file({
 					'basename' => $inp->{$aproviderstr}
 				});
-				if( ! defined $da ){ warn "error, call to read_data_from_file() has failed for provider '$aproviderstr'."; return undef }
+				if( ! defined $da ){ warn "error, call to read_data_from_file() has failed for provider '$aproviderstr'"; return undef }
 				$ret{$aproviderstr} = $da;
 			}
 			return \%ret
@@ -277,7 +380,7 @@ sub	read_data_from_files {
 		my $da = $self->read_data_from_file({
 			'provider' => $aproviderstr
 		});
-		if( ! defined($da) ){ warn "error, call to read_data_from_file() has failed for the provider '$aproviderstr'."; return undef }
+		if( ! defined($da) ){ warn "error, call to read_data_from_file() has failed for the provider '$aproviderstr'"; return undef }
 		$ret{$aproviderstr} = $da;
 	}
 	return \%ret
@@ -295,20 +398,20 @@ sub	version {
 	if( $force==0 && defined($self->{'db-version'}) ){ return $self->{'db-version'} }
 
 	my $vio = $self->_create_Version_IO();
-	if( ! defined $vio ){ warn "error, call to _create_Version_IO() has failed."; return undef }
-	if( ! defined $vio->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed."; return undef }
+	if( ! defined $vio ){ warn "error, call to _create_Version_IO() has failed"; return undef }
+	if( ! defined $vio->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed"; return undef }
 	my $versionobj = $vio->db_select();
 	if( defined($versionobj) && (scalar(@$versionobj)==1) ){
 		$self->{'db-version'} = $versionobj->[0]->version(); return $self->{'db-version'}
 	}
-	if( scalar @$versionobj >1 ){ warn "error, why there are more than 1 rows for table Version? (got ".@$versionobj." rows)."; return undef }
+	if( scalar @$versionobj >1 ){ warn "error, why there are more than 1 rows for table Version? (got ".@$versionobj." rows)"; return undef }
 
 	# no version row, create one
 	$versionobj = Statistics::Covid::Version->new();
-	if( ! defined $versionobj ){ warn "error, call to ".'Statistics::Covid::Version->new()'." has failed."; return undef }
+	if( ! defined $versionobj ){ warn "error, call to ".'Statistics::Covid::Version->new()'." has failed"; return undef }
 	$self->{'db-version'} = $versionobj->version();
 	# and save the version to db;
-	if( 1 != $vio->db_insert($versionobj) ){ warn "error, db_insert() failed for version."; return undef }
+	if( 1 != $vio->db_insert($versionobj) ){ warn "error, db_insert() failed for version"; return undef }
 	return $versionobj->version();
 }
 # returns the number of rows in the Datum table in the database
@@ -321,7 +424,7 @@ sub	version {
 sub	db_count_datums {
 	my $self = $_[0];
 	my $params = defined($_[1]) ? $_[1] : undef;
-	my $count = $self->{'p'}->{'datum-io'}->db_count($params);
+	my $count = $self->datum_io()->db_count($params);
 	if( $count < 0 ){ warn "error, call to db_count() has failed for the above parameters."; return -1 }
 	return $count
 }
@@ -331,30 +434,13 @@ sub	db_merge {
 
 	die "not yet implemented"
 }
-
-# returns 0 on failure,
-#        -1 on nothing to do
-#         1 on success
-sub	migrate {
-	my $self = $_[0];
-
-	my $dbversion = $self->version();
-	if( $self->version() eq $VERSION ){ warn "migrate(): nothing to do"; return -1 }
-
-	my $migrator = Statistics::Covid::Migrator->new({
-		'config-hash' => $self->config(),
-		'version-from' => $dbversion,
-		'version-to' => $VERSION,
-	});
-	if( ! defined $migrator ){ warn "error, call to ".'Statistics::Covid::Migrator->new()'." has failed."; return 0 }
-	return $migrator->migrate()
-}
 sub	db_backup {
 	my $self = $_[0];
 	# optional output file, or default
 	my $outfile = $_[1]; # if undef then a timestamped filename will be created in current dir (not in db dir)
-	return $self->{'p'}->{'datum-io'}->db_create_backup_file($outfile)
+	return $self->datum_io()->db_create_backup_file($outfile)
 }
+sub	datum_io { return $_[0]->{'p'}->{'io-datum'} }
 # getter/setter subs
 sub     debug {
 	my $self = $_[0];
@@ -369,12 +455,20 @@ sub     dbparams { return $_[0]->config()->{'dbparams'} }
 # and if it does, it returns the provider obj
 # if not found returns undef (so undef can happen only
 # if a provider id is specified at input)
+sub	provider_names { 
+	my $self = $_[0];
+	my $prov = $_[0]->providers();
+	return defined($prov)
+		? [sort keys %$prov]
+		: []
+	;
+}
 sub	providers {
 	my $self = $_[0];
 	my $m = $_[1];
 
 	if( ! defined $m ){ return $self->{'p'}->{'provider-objs'} }
-
+	my $debug = $self->debug();
 	if( ref($m) eq '' ){
 		# we were given a string to search for that provider and return its data
 		# return the exact provider if the pstr matches an id from our providers
@@ -382,31 +476,41 @@ sub	providers {
 			if exists($self->{'p'}->{'provider-objs'}->{$m});
 		return undef # id given is not in our list
 	} elsif( ref($m) eq 'ARRAY' ){
-		my $debug = $self->debug();
 		# we were given an arrayref, presumably a list of providers
 		# we need to find the package of each provider and load it,
 		# that's why the contents of this array plus the package string below
 		# must much exactly our installed provider packages
 		my %providers = ();
 		for my $aprovider (@$m){
-			my $pn = 'Statistics::Covid::DataProvider::'.$aprovider;
-			my $pnf = File::Spec->catdir(split(/\:\:/, $pn)).'.pm';
-			my $loadedOK = eval {
-				require $pnf;
-				$pn->import;
-				1;
-			};
-			if( ! $loadedOK ){ warn "error, failed to load module '$pn' (file '$pnf'), most likely provider does not exist '$pn'."; return undef }
-			my $providerObj = $pn->new({
+			my $modulename = 'Statistics::Covid::DataProvider::'.$aprovider;
+			my $modulefilename = File::Spec->catdir(split(/\:\:/, $modulename)).'.pm';
+			if( ! Statistics::Covid::Utils::is_module_loaded($modulename) ){
+				my $loadedOK = eval {
+					require $modulefilename;
+					$modulename->import;
+					1;
+				};
+				if( ! $loadedOK ){ warn "error, failed to load module '$modulename' (file '$modulefilename'), does it exist?"; return undef }
+			} else { if( $debug>0 ){ warn "module '$modulename' is already loaded and will not be loaded again" } }
+			my $pparams = {
 				'config-hash' => Storable::dclone($self->config()),
-				'debug' => $debug
-			});
-			if( ! defined $providerObj ){ warn "error, call to $pn->new() has failed."; return undef }
+				'debug' => $debug,
+				'save-to-file' => $self->save_to_file($aprovider),
+			};
+			if( exists $self->{'p'}->{'provider-extra-params'}->{$aprovider} ){
+				# append to params hash extra provider params if exist for this provider
+				@{$pparams}{keys %{$self->{'p'}->{'provider-extra-params'}->{$aprovider}}}
+				  = values %{$self->{'p'}->{'provider-extra-params'}->{$aprovider}}
+				;
+				if( $debug>0 ){ warn "added extra parameters to provider '$aprovider': ".join(', ', keys %{$self->{'p'}->{'provider-extra-params'}->{$aprovider}}) }
+			}
+			my $providerObj = $modulename->new($pparams);
+			if( ! defined $providerObj ){ warn "error, call to $modulename->new() has failed"; return undef }
 			# the key to the providers can be the full package or just this bit
 			# we prefer this bit (e.g. World::JHU)
-			#$providers{$pn} = $providerObj;
+			#$providers{$modulename} = $providerObj;
 			$providers{$aprovider} = $providerObj;
-			if( $debug > 0 ){ warn "provider added '$pn':\n".$providerObj->toString() }
+			if( $debug > 0 ){ warn "provider constructed and added '$modulename':\n".$providerObj->toString() }
 		}
 		$self->{'p'}->{'provider-objs'} = \%providers;
 	}
@@ -420,15 +524,17 @@ sub     config {
 }
 sub     save_to_file {
 	my $self = $_[0];
-	my $m = $_[1];
-	if( defined $m ){ $self->{'save-to-file'} = $m; return $m }
-	return $self->{'save-to-file'}
+	my $pn = $_[1]; # provider name
+	my $m = $_[2]; # 1 or 0 for on/off
+	if( defined $m ){ $self->{'save-to-file'}->{$pn} = $m; return $m }
+	return $self->{'save-to-file'}->{$pn}
 }
 sub     save_to_db {
 	my $self = $_[0];
-	my $m = $_[1];
-	if( defined $m ){ $self->{'save-to-db'} = $m; return $m }
-	return $self->{'save-to-db'}
+	my $pn = $_[1]; # provider name
+	my $m = $_[1]; # 1 or 0 for on/off
+	if( defined $m ){ $self->{'save-to-db'}->{$pn} = $m; return $m }
+	return $self->{'save-to-db'}->{$pn}
 }
 # private subs
 sub	_create_Datum_IO {
@@ -439,8 +545,8 @@ sub	_create_Datum_IO {
 		'debug' => $self->debug(),
 		%$params
 	});
-	if( ! defined $io ){ warn "error, call to ".'Statistics::Covid::Datum::IO->new()'." has failed."; return undef }
-	if( ! defined $io->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed."; return undef }
+	if( ! defined $io ){ warn "error, call to ".'Statistics::Covid::Datum::IO->new()'." has failed"; return undef }
+	if( ! defined $io->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed"; return undef }
 	if( ! $io->db_is_connected() ){ warn "error, not connected to DB when it should be"; return undef }
 	return $io;
 }
@@ -452,12 +558,12 @@ sub	_create_Version_IO {
 		'debug' => $self->debug(),
 		%$params
 	});
-	if( ! defined $io ){ warn "error, call to ".'Statistics::Covid::Datum::IO->new()'." has failed."; return undef }
-	if( ! defined $io->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed."; return undef }
+	if( ! defined $io ){ warn "error, call to ".'Statistics::Covid::Datum::IO->new()'." has failed"; return undef }
+	if( ! defined $io->db_connect() ){ warn "error, failed to connect to DB, call to ".'db_connect()'." has failed"; return undef }
 	if( ! $io->db_is_connected() ){ warn "error, not connected to DB when it should be"; return undef }
 	return $io;
 }
-sub	_db_insert_bulk_toString {
+sub	_db_insert_bulk_returnvalue_toString {
 	# $inhash is a hashref of what was inserted in db, what was replaced, what was omitted because identical
 	my ($inhash, $rows_before, $rows_after) = @_;
 	my $ret =
@@ -485,13 +591,13 @@ Statistics::Covid - Fetch, store in DB, retrieve and analyse Covid-19 statistics
 
 =head1 VERSION
 
-Version 0.23
+Version 0.24
 
 =head1 DESCRIPTION
 
 This module fetches, stores in a database, retrieves from a database and analyses
 Covid-19 statistics from online or offline data providers, such as
-from L<the John Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>
+from L<the Johns Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>
 which I hope I am not obstructing (please send an email to the author if that is the case).
 
 After specifying one or more data providers (as a url and a header for data and
@@ -504,25 +610,71 @@ Each such data item (Datum) is described in L<Statistics::Covid::Datum::Table>
 and the relevant class is L<Statistics::Covid::Datum>. It contains
 fields such as: C<population>, C<confirmed>, C<unconfirmed>, C<terminal>, C<recovered>.
 
-Focus was on creating very high-level which distances as much as possible
-the user from the nitty-gritty details of fetching data using L<LWP::UserAgent>
-and dealing with the database using L<DBI> and L<DBIx::Class>.
+Focus was on creating a very high-level API and command line scripts
+to distance the user as much as possible
+from the nitty-gritty details of fetching data using L<LWP::UserAgent>,
+cleaning the data, dealing with the database using L<DBI> and L<DBIx::Class>.
 
-This is an early release until the functionality and the table schemata
+This is still considered an early release until the functionality and the table schemata
 solidify.
+
+Feel free to
+share any modules you create on analysing this data, either
+under the L<Statistics::Covid>
+namespace (for example in L<Statistics::Covid::Analysis::MyModule>)
+or any other you see appropriate.
+
+The module uses three database tables at the moment:
+L<Statistics::Covid::Datum>,
+L<Statistics::Covid::Version> and  L<Statistics::Covid::WorldbankData>.
+Consult L<Statistics::Covid::Schema::Result::Datum> on how to do
+create your own tables. For example for storing plots or fitted models.
+
+In order to assist analysis and in particular in correlating the epidemic's statistics
+with socio-economical data a sub-package
+(L<Statistics::Covid::WorldbankData>)
+has been created which
+downloads such data provided by L<https://www.worldbank.org/ | the World Bank>
+and stores it in the database, in a table on its own.
 
 =head1 SYNOPSIS
 
 	use Statistics::Covid;
 	use Statistics::Covid::Datum;
 
+	# create the object for downloading data, parsing, cleaning
+	# and storing to DB. If table is not deployed it will be deployed.
+	# (tested with SQLite)
 	$covid = Statistics::Covid->new({
+		# configuration file (or hash)
 		'config-file' => 't/config-for-t.json',
-		'providers' => ['UK::BBC', 'UK::GOVUK', 'World::JHU'],
+		#'config-hash' => {...}.,
+		# known data providers
+		# 'World::JHU' points to
+		# https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6
+		# it's a Johns Hopkins University site and contains world data since the
+		# beginning as well as local data (states) for the US, Canada and China
+		# 'World::JHUgithub' points to this:
+		# https://github.com/CSSEGISandData/COVID-19
+		# 'World::JHUlocaldir' is a local clone (git clone) of the above
+		# because the online github has a limit on files to download
+		# the best is to git-clone locally and use 'World::JHUlocaldir'
+		# Then there are 2 repositories for UK statistics broken
+		# into local areas.
+		'providers' => ['UK::BBC', 'UK::GOVUK2',
+		  'World::JHUlocaldir', 'World::JHUgithub',
+		  'World::JHU'
+		],
+		# save fetched data locally in its original format (json or csv)
+		# and also as a perl var
 		'save-to-file' => 1,
+		# save fetched data into the database in table Datum
 		'save-to-db' => 1,
-		'debug' => 2,
+		# debug level affects verbosity
+		'debug' => 2, # 0, 1, ...
 	}) or die "Statistics::Covid->new() failed";
+
+	# Do the download:
 	# fetch all the data available (posibly json), process it,
 	# create Datum objects, store it in DB and return an array
 	# of the Datum objects just fetched  (and not what is already in DB).
@@ -538,8 +690,8 @@ solidify.
 
 	my $someObjs = $covid->select_datums_from_db({
 		'conditions' => {
-			belongsto=>'UK',
-			name=>'Hackney'
+			admin0=>'UK',
+			admin1=>'Hackney'
 		}
 	});
 
@@ -551,21 +703,31 @@ solidify.
 
 	# or for a single place (this sub sorts results wrt publication time)
 	my $timelineObjs =
-	  $covid->select_datums_from_db_for_specific_location_time_ascending(
-		'Hackney'
-	  );
+	  $covid->select_datums_from_db_time_ascending({
+		'conditions' => {
+			'admin1' => 'Hackney',
+			'admin0' => 'UK',
+		}
+	  });
 
 	# or for a wildcard match
 	my $timelineObjs =
-	  $covid->select_datums_from_db_for_specific_location_time_ascending(
-		{'like'=>'Hack%'}
-	  );
+	  $covid->select_datums_from_db_time_ascending({
+		'conditions' => {
+			'admin1' => {'like'=>'Hack%'},
+			'admin0' => 'UK',
+		}
+	  });
 
 	# and maybe specifying max rows
 	my $timelineObjs =
-	  $covid->select_datums_from_db_for_specific_location_time_ascending(
-		{'like'=>'Hack%'}, {'rows'=>10}
-	  );
+	  $covid->select_datums_from_db_time_ascending({
+		'conditions' => {
+			'admin1' => {'like'=>'Hack%'},
+			'admin0' => 'UK',
+		},
+		'attributes' => {'rows' => 10}
+	  });
 
 	# print those datums
 	for my $anobj (@$timelineObjs){
@@ -602,27 +764,31 @@ solidify.
 	# data will come out as an array of Datum objects sorted wrt time
 	# (wrt the 'datetimeUnixEpoch' field)
 	$objs =
-	  $covid->select_datums_from_db_for_specific_location_time_ascending(
-		#{'like' => 'Ha%'}, # the location (wildcard)
-		['Halton', 'Havering'],
-		#{'like' => 'Halton'}, # the location (wildcard)
-		#{'like' => 'Havering'}, # the location (wildcard)
-		'UK', # the belongsto (could have been wildcarded or omitted)
+	  $covid->select_datums_from_db_time_ascending(
+		'conditions' => {
+			# admin1 is a province, state
+			# similarly admin2 can be a local authority but
+			# that varies between countries and data providers
+			#'admin1' =>{'like' => 'Ha%'},
+			#'admin1' =>['Halton', 'Havering'],
+			# the admin0 (could be a wildcard) is like a country name
+			'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
+		}
 	  );
 
-	# create a dataframe (see doc in L<Statistics::Covid::Utils>)
+	# create a dataframe (see L<Statistics::Covid::Utils/datums2dataframe>)
 	$df = Statistics::Covid::Utils::datums2dataframe({
 		# input data is an array of L<Statistics::Covid::Datum>'s
 		# as fetched from providers or selected from DB (see above)
 		'datum-objs' => $objs,
 
-		# collect data from all those with same 'name' and same 'belongsto'
+		# collect data from all those with same 'admin1' and same 'admin0'
 		# and maybe plot this data as a single curve (or fit or whatever)
 		# this will essentially create an entry for 'Hubei|China'
 		# another for 'Italy|World', another for 'Hackney|UK'
-		# etc. FOR all name/belongsto tuples in your
+		# etc. FOR all admin0/admin1 tuples in your
 		# selected L<Statistics::Covid::Datum>'s
-		'groupby' => ['name','belongsto'],
+		'groupby' => ['admin0','admin1', 'admin2', 'admin3', 'admin4'],
 
 		# what fields/attributes/column-names of the datum object
 		# to insert into the dataframe?
@@ -679,7 +845,7 @@ solidify.
 		# the dataframe, e.g. 'GroupBy'
 		'datum-objs' => $objs,
 		# see the datums2dataframe() example above for explanation:
-		'GroupBy' => ['name', 'belongsto'],
+		'GroupBy' => ['admin0', 'admin1'],
 
 		'outfile' => 'confirmed-over-time.png',
 		# use this column as Y
@@ -698,15 +864,14 @@ solidify.
 	});
 
 	#####
-	# Fit an analytical model to data
+	# Fit a model to data
 	# i.e. find the parameters of a user-specified
 	# equation which can fit on all the data points
 	# with the least error.
-	# In suce cases (growth), an exponential model is
-	# usual: c1 * c2^x (c1 and c2 must be found / fitted)
+	# An exponential model is often used in the spread of a virus:
+	# c1 * c2^x (c1 and c2 are the coefficients to be found / fitted)
 	# 'x' is the independent variable and usually denotes time
-	# time in L<Statistics::Covid::Datum> is the
-	# 'datetimeUnixEpoch' field	
+	# in L<Statistics::Covid::Datum> is the 'datetimeUnixEpoch' field
 	#####
 
 	use Statistics::Covid;
@@ -723,6 +888,7 @@ solidify.
 	});
 	# we have a problem because seconds since the Unix epoch
 	# is a huge number and the fitter algorithm does not like it.
+	# actually exponential functions in a discrete computer don't like it.
 	# So push their oldest datapoint to 0 (hours) and all
 	# later datapoints to be relative to that.
 	# This does not affect data in DB or even in the array of
@@ -837,24 +1003,6 @@ solidify.
 
 
 
-	use Statistics::Covid::Analysis::Plot::Simple;
-
-	# plot something
-	my $objs = $io->db_select({
-		conditions => {belongsto=>'UK', name=>{'like' => 'Ha%'}}
-	});
-	my $outfile = 'chartclicker.png';
-	my $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
-        	'datum-objs' => $objs,
-		# saves to this file:
-	        'outfile' => $outfile,
-		# plot this column (x-axis is time always)
-        	'Y' => 'confirmed',
-		# and make several plots, each group must have 'name' common
-	        'GroupBy' => ['name']
-	});
-
-
 =head1 EXAMPLE SCRIPTS
 
 C<script/statistics-covid-fetch-data-and-store.pl> is
@@ -900,37 +1048,46 @@ this same data.
 
 It will also insert fetched data in the database. There are three
 modes of operation for that, denoted by the C<replace-existing-db-record>
-entry in the config file (under C<dparams>). Clarification:
-a I<duplicate> record means duplicate as far as the primary key(s)
+entry in the config file (under C<dparams>).
+
+=head3 Definition of duplicate records
+
+A I<duplicate> record means duplicate as far as the primary key(s)
 are concerned and nothing else. For example, L<Statistics::Covid::Datum>'s
 PK is a combination of
 C<name>, C<id> and C<datetimeISO8601> (see L<Statistics::Covid::Datum::Table>).
 If two records have these 3 fields exactly the same, then they are considered
-I<duplicate>.
-
+I<duplicate>. If one record's C<confirmed> value is 5 and the second record's
+is 10, then the second record is considered more I<up-to-date>, I<newer>
+than the first one. See L<Statistics::Covid::Datum::newer_than> on how to
+overwrite that behaviour.
 
 =over 2
+
 C<replace> : will force B<replacing> existing database data with new data, 
-no questions asked about. New data may be less up-to-date than the
-DB data. No questions asked.
+no questions asked about. With this option existing data may be more
+up-to-date than the newly fetched data, but it will be forcibly replaced.
+No questions asked.
 
-C<ignore> : will not insert new data if duplicate exists 
+C<ignore> : will not insert new data if I<duplicate> exists in database.
+End of story. No questions asked.
 
-only newer, up-to-date data
-will be inserted. So, calling this script, say once or twice will
+C<only-better> : this is the preferred option. Only I<newer>,
+more I<up-to-date> data
+will be inserted. I<newer> is decided by what
+L<Statistics::Covid::Datum::newer_than> sub returns.
+With this option in your config file,
+calling this script, more than once will
 make sure you have the latest data without accummulating it
-redundantly.
+redundantly either in the database or as a local file.
 
-B<But please call this script AT MAXIMUM one or two times per day so as not to
-obstruct public resources. Please, Please.>
+=back
 
-When the database is up-to-date, analysis of data is the next step.
+B<Please call this script AT MAXIMUM one or two times per day so as not to
+obstruct public resources.>
 
-In the synopis, it is shown how to select records from the database,
-as an array of L<Statistics::Covid::Datum> objects. Feel free to
-share any modules you create on analysing this data, either
-under this namespace (for example Statistics::Covid::Analysis::XYZ)
-or any other you see appropriate.
+When the database is up-to-date, analysis of data is the next step:
+plotting, fitting to analytical models, prediction, comparison.
 
 =head1 CONFIGURATION FILE
 
@@ -989,6 +1146,10 @@ abstraction offered by L<DBI> and L<DBIx::Class>.
 B<However>, only the SQLite support has been tested.
 
 B<Support for MySQL is totally untested>.
+
+=head1 REPOSITORY
+
+L<https://github.com/hadjiprocopis/statistics-covid>
 
 =head1 AUTHOR
 
@@ -1088,7 +1249,7 @@ Almaz
 
 =over 2
 
-=item L<John Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
+=item L<Johns Hopkins University|https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>,
 
 =item L<UK government|https://www.gov.uk/government/publications/covid-19-track-coronavirus-cases>,
 
