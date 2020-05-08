@@ -290,7 +290,8 @@ as the current table schema dictates.
   $someObjs = $covid->select_datums_from_db({
     'conditions' => {
        admin0=>'United Kingdom of Great Britain and Northern Ireland',
-       admin1=>'Hackney'
+       'datasource' => 'UK::GOVUK2',
+       admin3=>'Hackney'
     },
     'attributes' => {
        rows => 10,
@@ -307,8 +308,9 @@ The following queries and sorts the results in time-ascending order,
   my $timelineObjs =
     $covid->select_datums_from_db_time_ascending({
       'conditions' => {
+          'datasource' => 'UK::GOVUK2',
           admin0=>'United Kingdom of Great Britain and Northern Ireland',
-          admin1=>'Hackney'
+          admin3=>'Hackney'
       }
     });
 
@@ -317,8 +319,9 @@ Count the number of rows matching certain conditions with,
   print "rows matched: ".db_count_datums({
     $covid->select_datums_from_db_time_ascending({
       'conditions' => {
+          'datasource' => 'UK::GOVUK2',
           admin0=>'United Kingdom of Great Britain and Northern Ireland',
-          admin1=>'Hackney'
+          admin3=>'Hackney'
       }
     });
 
@@ -494,7 +497,8 @@ as the C<groupby> column names.
     my $timelineObjs =
        $covid->select_datums_from_db_time_ascending({
            'conditions' => {
-		'admin1' => 'Hackney',
+                'datasource' => 'UK::GOVUK2',
+		'admin3' => 'Hackney',
 		'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
 	}
     });
@@ -598,7 +602,8 @@ the curve fitting algorithm (and the matrix multiplications).
     my $timelineObjs =
        $covid->select_datums_from_db_time_ascending({
            'conditions' => {
-		'admin1' => 'Hackney',
+                'datasource' => 'UK::GOVUK2',
+		'admin3' => 'Hackney',
 		'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
 	}
     });
@@ -607,7 +612,7 @@ the curve fitting algorithm (and the matrix multiplications).
     my $df = Statistics::Covid::Utils::datums2dataframe({
       'datum-objs' => $timelineObjs,
       # each unique geo-location will be a single group
-      'groupby' => ['admin0','admin1', 'admin2', 'admin3', 'admin4'],
+      'groupby' => ['admin0','admin1, 'admin2', 'admin3', 'admin4'],
       # with these data in each group as an array keyed on group name
       'content' => ['confirmed', 'terminal', 'datetimeUnixEpoch'],
     }) or die;
@@ -891,7 +896,7 @@ population size (at the C<admin0> level, e.g. country).
       --group-by 'admin0' \
       --group-by 'admin3' \
       --search-conditions \
-       '{admin0=>"United Kingdom of Great Britain and Northern Ireland", admin3=>["Hackney", "Tower Hamlets", "Kensington and Chelsea"]}'
+       '{admin0=>"United Kingdom of Great Britain and Northern Ireland",datasource=>"UK::GOVUK2",admin3=>["Hackney", "Tower Hamlets", "Kensington and Chelsea"]}'
 
 
 

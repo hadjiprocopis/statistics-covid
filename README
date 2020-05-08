@@ -1,7 +1,6 @@
 NAME
 
-    Statistics::Covid - Fetch, store in DB, retrieve and analyse Covid-19
-    statistics from data providers
+    Statistics::Covid - Cookbook
 
 VERSION
 
@@ -10,36 +9,10 @@ VERSION
 DESCRIPTION
 
     This module fetches, stores in a database, retrieves from a database
-    and analyses Covid-19 statistics from online or offline data providers,
-    such as from the Johns Hopkins University
-    <https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>
-    which I hope I am not obstructing (please send an email to the author
-    if that is the case).
+    and analyses Covid-19 statistics from online or offline data providers.
 
-    After specifying one or more data providers (as a url and a header for
-    data and optionally for metadata), this module will attempt to fetch
-    the latest data and store it in a database (SQLite and MySQL, only
-    SQLite was tested so far). Each batch of data should ideally contain
-    information about one or more locations and at a given point in time.
-    All items in this batch are extracted and stored in DB each with its
-    location name and time (it was published, not fetched) as primary keys.
-    Each such data item (Datum) is described in
-    Statistics::Covid::Datum::Table and the relevant class is
-    Statistics::Covid::Datum. It contains fields such as: population,
-    confirmed, unconfirmed, terminal, recovered.
-
-    Focus was on creating a very high-level API and command line scripts to
-    distance the user as much as possible from the nitty-gritty details of
-    fetching data using LWP::UserAgent, cleaning the data, dealing with the
-    database using DBI and DBIx::Class.
-
-    This is still considered an early release until the functionality and
-    the table schemata solidify.
-
-    Feel free to share any modules you create on analysing this data,
-    either under the Statistics::Covid namespace (for example in
-    Statistics::Covid::Analysis::MyModule) or any other you see
-    appropriate.
+    This document puts together a few examples demonstrating its
+    functionality.
 
     The module uses three database tables at the moment:
     Statistics::Covid::Datum, Statistics::Covid::Version and
@@ -53,371 +26,841 @@ DESCRIPTION
     such data provided by https://www.worldbank.org/  and stores it in the
     database, in a table on its own.
 
-SYNOPSIS
+CONFIGURATION FILE
 
-            use Statistics::Covid;
-            use Statistics::Covid::Datum;
-    
-            # create the object for downloading data, parsing, cleaning
-            # and storing to DB. If table is not deployed it will be deployed.
-            # (tested with SQLite)
-            $covid = Statistics::Covid->new({
-                    # configuration file (or hash)
-                    'config-file' => 't/config-for-t.json',
-                    #'config-hash' => {...}.,
-                    # known data providers
-                    # 'World::JHU' points to
-                    # https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6
-                    # it's a Johns Hopkins University site and contains world data since the
-                    # beginning as well as local data (states) for the US, Canada and China
-                    # 'World::JHUgithub' points to this:
-                    # https://github.com/CSSEGISandData/COVID-19
-                    # 'World::JHUlocaldir' is a local clone (git clone) of the above
-                    # because the online github has a limit on files to download
-                    # the best is to git-clone locally and use 'World::JHUlocaldir'
-                    # Then there are 2 repositories for UK statistics broken
-                    # into local areas.
-                    'providers' => ['UK::BBC', 'UK::GOVUK2',
-                      'World::JHUlocaldir', 'World::JHUgithub',
-                      'World::JHU'
-                    ],
-                    # save fetched data locally in its original format (json or csv)
-                    # and also as a perl var
-                    'save-to-file' => 1,
-                    # save fetched data into the database in table Datum
-                    'save-to-db' => 1,
-                    # debug level affects verbosity
-                    'debug' => 2, # 0, 1, ...
-            }) or die "Statistics::Covid->new() failed";
-    
-            # Do the download:
-            # fetch all the data available (posibly json), process it,
-            # create Datum objects, store it in DB and return an array
-            # of the Datum objects just fetched  (and not what is already in DB).
-            my $newobjs = $covid->fetch_and_store();
-    
-            print $_->toString() for (@$newobjs);
-    
-            print "Confirmed cases for ".$_->name()
-                    ." on ".$_->date()
-                    ." are: ".$_->confirmed()
-                    ."\n"
-            for (@$newobjs);
-    
-            my $someObjs = $covid->select_datums_from_db({
-                    'conditions' => {
-                            admin0=>'UK',
-                            admin1=>'Hackney'
-                    }
-            });
-    
-            print "Confirmed cases for ".$_->name()
-                    ." on ".$_->date()
-                    ." are: ".$_->confirmed()
-                    ."\n"
-            for (@$someObjs);
-    
-            # or for a single place (this sub sorts results wrt publication time)
-            my $timelineObjs =
-              $covid->select_datums_from_db_time_ascending({
-                    'conditions' => {
-                            'admin1' => 'Hackney',
-                            'admin0' => 'UK',
-                    }
-              });
-    
-            # or for a wildcard match
-            my $timelineObjs =
-              $covid->select_datums_from_db_time_ascending({
-                    'conditions' => {
-                            'admin1' => {'like'=>'Hack%'},
-                            'admin0' => 'UK',
-                    }
-              });
-    
-            # and maybe specifying max rows
-            my $timelineObjs =
-              $covid->select_datums_from_db_time_ascending({
-                    'conditions' => {
-                            'admin1' => {'like'=>'Hack%'},
-                            'admin0' => 'UK',
+    Below is an example configuration file which is essentially JSON with
+    comments. It can be found in t/config-for-t.json relative to the root
+    directory of this distribution.
+
+            # comments are allowed, otherwise it is json
+            # this file does not get eval'ed, it is parsed
+            # only double quotes! and no excess commas
+            {
+                    # fileparams options
+                    "fileparams" : {
+                            # dir to store datafiles, each DataProvider class
+                            # then has its own path to append
+                            "datafiles-dir" : "datazz/files"
                     },
-                    'attributes' => {'rows' => 10}
-              });
-    
-            # print those datums
-            for my $anobj (@$timelineObjs){
-                    print $anobj->toString()."\n";
-            }
-    
-            # total count of datapoints matching the select()
-            print "datum rows matched: ".scalar(@$timelineObjs)."\n";
-    
-            # total count of datapoints in db
-            print "datum rows in DB: ".$covid->db_count_datums()."\n";
-    
-            ###
-            # Here is how to select data and plot it
-            ##
-    
-            use Statistics::Covid;
-            use Statistics::Covid::Datum;
-            use Statistics::Covid::Utils;
-            use Statistics::Covid::Analysis::Plot::Simple;
-    
-            # now read some data from DB and do things with it
-            # this assumes a test database in t/t-data/db/covid19.sqlite
-            # which is already supplied with this module (60K)
-            # use a different config-file (or copy and modify
-            # the one in use here, but don't modify itself because
-            # tests depend on it)
-            $covid = Statistics::Covid->new({
-                    'config-file' => 't/config-for-t.json',
-                    'debug' => 2,
-            }) or die "Statistics::Covid->new() failed";
-    
-            # select data from DB for selected locations (in the UK)
-            # data will come out as an array of Datum objects sorted wrt time
-            # (wrt the 'datetimeUnixEpoch' field)
-            $objs =
-              $covid->select_datums_from_db_time_ascending(
-                    'conditions' => {
-                            # admin1 is a province, state
-                            # similarly admin2 can be a local authority but
-                            # that varies between countries and data providers
-                            #'admin1' =>{'like' => 'Ha%'},
-                            #'admin1' =>['Halton', 'Havering'],
-                            # the admin0 (could be a wildcard) is like a country name
-                            'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
+                    # database IO options
+                    "dbparams" : {
+                            # which DB to use: SQLite, MySQL (case sensitive)
+                            "dbtype" : "SQLite",
+                            # the name of DB
+                            # in the case of SQLite, this is a filepath
+                            # all non-existing dirs will be created (by module, not by DBI)
+                            "dbdir" : "datazz/db",
+                            "dbname" : "covid19.sqlite",
+                            # how to handle duplicates in DB? (duplicate=have same PrimaryKey)
+                            # only-better : replace records in DB if outdated (meaning number of markers is less, e.g. terminal or confirmed)
+                            # replace     : force replace irrespective of markers
+                            # ignore      : if there is a duplicate in DB DONT REPLACE/DONT INSERT
+                            # (see also Statistics::Covid::Datum for up-to-date info)
+                            "replace-existing-db-record" : "only-better",
+                            # username and password if needed
+                            # unfortunately this is in plain text
+                            # BE WARNED: do not store your main DB password here!!!!
+                            # perhaps create a new user or use SQLite
+                            # there is no need for these when using SQLite
+                            "hostname" : "", # must be a string (MySQL-related)
+                            "port"     : "", # must be a string (MySQL-related)
+                            "username" : "", # must be a string
+                            "password" : "", # must be a string
+                            # options to pass to DBI::connect
+                            # see https://metacpan.org/pod/DBI for all options
+                            "dbi-connect-params" : {
+                                    "RaiseError" : 1, # die on error
+                                    "PrintError" : 0  # do not print errors or warnings
+                            }
                     }
-              );
+            }
+
+    A configuration file can be read into a configuration hashtable. And
+    either form of configuration is accepted by all high-level functions in
+    this package. For example,
+
+      use Statistics::Covid::Utils;
+      my $confighash = Statistics::Covid::Utils::configfile2perl('config/config.json')
+        or die "failed to read config file";
+
+    A confighash can be adjusted to particular temporary needs by modifying
+    certain values these adjustments are not saved back to file (!)
+
+      $confighash->{'dbparams'}->{'hostname'} = ...;
+
+    The API for high-level subs or class constructors, provided by this
+    package, reserves a key in the input parameters hash for 'config-hash'
+    or 'config-file' to specify the configuration either as a file or as a
+    previously read config hashtable.
+
+FETCH DATA
+
+    Fetching data entails sucking it from the data providers' sites using
+    provided APIs or, in the worst case, scraping it, even from HTML.
+    Thankfully, all the providers so far provide JSON or CSV files.
+
+ Known data providers
+
+      * World::JHU points to Johns Hopkins University site
+      <https://www.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6>
+      and contains real-time world data. China, United States, Canada and
+      some other countries have data for states or provinces too. E.g.
+      Colorado or Xiandong.
+
+      * World::JHUgithub points to Johns Hopkins University github
+      repository https://github.com/CSSEGISandData/COVID-19 which contains
+      CSV files for each day since the beginning. Their last CSV will more
+      or less contain the data currently at World::JHU. Github being what
+      it is restricts access to this site and downloads of several files
+      will be restricted. In this case it is preferable to clone the
+      repository into a local directory and use World::JHUlocaldir option,
+      below.
+
+      * World::JHUlocaldir is a local clone (git clone) of the above git
+      repository. For example:
+
+        mkdir JHU-COVID-19-github
+        cd JHU-COVID-19-github
+        git clone 'https://github.com/CSSEGISandData/COVID-19.git'
+
+      Then everytime you want to fetch fresh data, do:
+
+        cd JHU-COVID-19-github
+        git pull
+
+      This will fetch CSV data locally. And see later on how to parse and
+      insert it to the local database.
+
+ Prepare a Covid object
+
+      use Statistics::Covid;
+      $covid = Statistics::Covid->new({
+        # configuration file (or hash)
+        'config-file' => 't/config-for-t.json',
+        #'config-hash' => {...}.,
     
-            # create a dataframe (see L<Statistics::Covid::Utils/datums2dataframe>)
-            $df = Statistics::Covid::Utils::datums2dataframe({
-                    # input data is an array of L<Statistics::Covid::Datum>'s
-                    # as fetched from providers or selected from DB (see above)
-                    'datum-objs' => $objs,
+        'providers' => [
+            #'UK::BBC',
+            'UK::GOVUK2',
+            'World::JHUlocaldir',
+            'World::JHUgithub',
+            'World::JHU'
+        ],
+        'provider-extra-params' => {
+            'World::JHUlocaldir' => {
+                    'paths' => ['JHU-COVID-19'],
+            },
+            # 'World::JHUgithub' => defaults are enough but see L<Statistics::Covid::DataProvider::World::JHUgithub>
+        },
+        # save fetched data locally in its original format (json or csv)
+        # and also as a perl var
+        'save-to-file' => {
+            'UK::BBC' => 1,
+            'UK::GOVUK2' => 1,
+            'World::JHUlocaldir' => 0,
+            'World::JHUgithub' => 1,
+            'World::JHU' => 1,
+        },
+        # save fetched data into the database in table Datum
+        'save-to-db' => {
+            'UK::BBC' => 1,
+            'UK::GOVUK2' => 1,
+            'World::JHUlocaldir' => 1,
+            'World::JHUgithub' => 1,
+            'World::JHU' => 1,
+        },
+        # debug level affects verbosity
+        'debug' => 2, # 0, 1, ...
+      }) or die "Statistics::Covid->new() failed";
+
+    The above will set up an object which can be used for downloading the
+    data and inserting it into the database and/or selecting data from the
+    database.
+
+    When instantiated, the object will check for the existence of the
+    database (as specified in the configuration file). If the database does
+    not exist, it will be deployed and tables created, all ready for
+    inserting data. At this point, please be reminded that all
+    functionality has been tested with SQLite3. However, because internally
+    DBIx::Class is used, one would guess that it's fairly simple to use
+    other database vendors. The configuration file is where the database
+    vendor and parameters passed to the database connector are set.
+    Theoretically, changing a database vendor is as easy as adjusting the
+    configuration file in one or two places.
+
+    So, after successful instantiation, a database and all required tables
+    are guaranteed to exist.
+
+ Datum
+
+    The main data item to be inserted into the database is the
+    Statistics::Covid::Datum. It represents a set of quantities (something
+    like confirmed and unconfirmed cases, peopletested, recovered and
+    terminal) for a specific location and time point. Which can be Italy,
+    Tue 21 Apr 21:54:48 UTC 2020. This will count all total quantities over
+    space and time. So, confirmed cases will be the total confirmed cases
+    all over Italy and since the beginning of records. Italy in this
+    package is what we call an admin0 location. And so is the UK. For the
+    UK, there is data for each "country" which will be admin1 (e.g.
+    Scotland). And also data for each region admin2 (e.g. South-East). And
+    also data for each local authority admin3 (e.g. Hackney).
+
+    The Datum table can take up to 4 levels of location administrative
+    levels admin0 ... admin4. It also can store lat and long of locations
+    in case they are not standard, e.g. cruise ships.
+
+    As far as markers are concerned, in addition to those mentioned above,
+    there are 5 user-specified indicators i1, i2, i3, i4, i5 (each storing
+    a real). Depending on the datasource provider, these user-specified
+    markers can have different meanings.
+
+    The Datum table schema is specified in Statistics::Covid::Datum::Table
+    as a hashtable (SCHEMA). The column specification follows DBIx::Class
+    convention, for example:
+
+      'admin0' => {data_type => 'varchar', is_nullable=>0, size=>60, default_value=>''},
+      'recovered' => {data_type => 'integer', is_nullable=>0, default_value=>1},
+      'i1' => {data_type => 'real', is_nullable=>0, default_value=>-1},
+
+    Datum, in addition to being a database table, it is also a Class whose
+    objects store exact same data in memory. Its constructor accepts the
+    above data in a hashtable form. It does not deal with the particular
+    data formats specific data providers provide. It needs a hashtable of
+    key/value pairs of data (e.g. admin0, confirmed, etc.).
+
+ Data Provider Classes
+
+    The logic for converting fetched data from a specified provider to
+    Datum objects is done inside each DataProvider class. There must exist
+    one for each data provider all inheriting from
+    Statistics::Covid::DataProvider::Base which offers basic functionality.
+
+    For example, see Statistics::Covid::DataProvider::World::JHU. Its
+    constructor specifies a set of URLs, headers, post-data (if any). The
+    main functionality is provided by "create_Datums_from_fetched_data" in
+    Statistics::Covid::DataProvider::World::JHU which gets the fetched data
+    and converts it to Statistics::Covid::Datum objects.
+
+    More data provider classes can be created by following
+    Statistics::Covid::DataProvider::World::JHU.
+
+ Fetch data and store
+
+    Data will be fetched from specified providers, either local or remote
+    using the following:
+
+      # $covid has already been created using Statistics::Covid->new(...)
+      $newObjs = $covid->fetch_and_store() or die "fetch failed";
     
-                    # collect data from all those with same 'admin1' and same 'admin0'
-                    # and maybe plot this data as a single curve (or fit or whatever)
-                    # this will essentially create an entry for 'Hubei|China'
-                    # another for 'Italy|World', another for 'Hackney|UK'
-                    # etc. FOR all admin0/admin1 tuples in your
-                    # selected L<Statistics::Covid::Datum>'s
-                    'groupby' => ['admin0','admin1', 'admin2', 'admin3', 'admin4'],
+      print $_->toString() for (@$newObjs);
+      # or get the complete hash of params
+      print pp($_->toHashtable()) for (@$newObjs);
+
+    Fetched data will optionally be saved to local files in the exact same
+    format as it was downloaded (so that they can be read again in the case
+    database needs to be rebuilt) and/or optionally be saved to the
+    database as the current table schema dictates.
+
+ Query the database
+
+      $someObjs = $covid->select_datums_from_db({
+        'conditions' => {
+           admin0=>'United Kingdom of Great Britain and Northern Ireland',
+           'datasource' => 'UK::GOVUK2',
+           admin3=>'Hackney'
+        },
+        'attributes' => {
+           rows => 10,
+        }
+      });
+
+    The query functions provided are just high-level DBIx::Class searches
+    following the conventions of "search" in DBIx::Class::ResultSet.
+    conditions is the equivalent of the WHERE clauses. In attributes one
+    can specify maximum number of rows, ORDER BY clauses, etc.
+
+    The following queries and sorts the results in time-ascending order,
+
+      my $timelineObjs =
+        $covid->select_datums_from_db_time_ascending({
+          'conditions' => {
+              'datasource' => 'UK::GOVUK2',
+              admin0=>'United Kingdom of Great Britain and Northern Ireland',
+              admin3=>'Hackney'
+          }
+        });
+
+    Count the number of rows matching certain conditions with,
+
+      print "rows matched: ".db_count_datums({
+        $covid->select_datums_from_db_time_ascending({
+          'conditions' => {
+              'datasource' => 'UK::GOVUK2',
+              admin0=>'United Kingdom of Great Britain and Northern Ireland',
+              admin3=>'Hackney'
+          }
+        });
+
+    If for some reason it is needed to insert an array of Datum objects
+    into the database, this will do it:
+
+      $covid->db_datums_insert_bulk($arrayOfDatumObjs) or die "failed to insert"
+
+    At this point we should mention that the insertion of in-memory objects
+    in the database if identical-in-primary-key objects already exist is
+    done in accordance to the replacement policy specified in the
+    configuation file under the key replace-existing-db-record which can
+    take the following values:
+
+      * only-better inserts the in-memory object, replacing the one
+      existing in the database only if "newer_than" in
+      Statistics::Covid::Datum returns true. That first compares the data
+      with respect to time and then if terminal / confirmed / recovered,
+      and finally, unconfirmed cases have increased, in this order.
+
+      * ignore, do not do an insert at all, no questions asked.
+
+      * replace, do an insert, no questions asked.
+
+DATA ANALYSIS
+
+ Additional socio-economical data: World Bank Indicators
+
+    In order to assist analysis and in particular in correlating the
+    epidemic's statistics with socio-economical data a sub-package
+    (Statistics::Covid::WorldbankData) has been created which downloads
+    such data provided by https://www.worldbank.org/  and stores it in the
+    database, in a table on its own.
+
+    Like Datum, the Statistics::Covid::WorldbankData class is dual,
+    representing an object in memory and a row in the corresponding table
+    in the database. The schema for this table is in
+    Statistics::Covid::WorldbankData::Table. The entry $SCHEMA->{'c2f'}
+    specifies which descriptors to download and create columns in the
+    database table WorldbankData. At the moment adding another descriptor,
+    in addition to the 9 already existing is not difficult. It just means
+    that the database table must be altered which is not as easy for all
+    database vendors. So, it is preferable to re-create the table. Saving
+    re-downloading data is desirable but that means to store them locally.
+    The consiensous user will find a modus-vivendi.
+
+      builder = Statistics::Covid::WorldbankData::Builder->new({
+            'config-file' => 'config/config.json',
+            'debug' => 1,
+      }) or die "failed to construct";
     
-                    # what fields/attributes/column-names of the datum object
-                    # to insert into the dataframe?
-                    # for plotting you need at least 2, one for the role of X
-                    # and one for the role of Y (see plotting later)
-                    # if you want to plot multiple Y, then add here more dependent columns
-                    # e.g. ('unconfirmed', etc.).
-                    # here we insert the values of 3 column-names
-                    # it will be an array of values for each field in the same order
-                    # as in the input '$objs' array.
-                    # Which was time-ascending sorted upon the select() (see retrieving above)
-                    'content' => ['confirmed', 'unconfirmed', 'datetimeUnixEpoch'],
-            });
+      $ret = $builder->update({
+            # optional parameters to be passed to LWP::UserAgent
+            # sane defaults already do exist
+            'ua-params' => {
+                    'agent' => 'ABC XYZ'
+            },
+            # optionally specify whether to re-download data files (no!)
+            'overwrite-local-files' => 0,
+            # the replace-strategy for existing db rows is
+            # in the config file under dbparams
+            # this will clear ALL rows in THIS TABLE (only)
+            'clear-db-first' => 0,
+      }) or die "failed to update";
     
+      print "Success fetching and inserting, this is some info:\n".pp($ret);
+
+    This is yearly data, so re-downloading data must be done once a year,
+    when data is updated at the source.
+
+    Using the data is as easy because the Statistics::Covid::WorldbankData
+    class is similar in functionality to the Statistics::Covid::Datum
+    class, both inheriting from the same parent class
+    (Statistics::Covid::IO::DualBase).
+
+    The main point to remember is that each
+    Statistics::Covid::WorldbankData object is one datum in space
+    (countries) and time (years) containing all the indicators specified at
+    the table creation time, like above. Getting a column / field /
+    attribute out of such an object is via get_column().
+
+    Unfortunately Statistics::Covid::WorldbankData objects are not yet
+    integrated to the Statistics::Covid class and so they have a somewhat
+    lower interface (which is identical to Statistics::Covid::Datum's, just
+    that the latter has also a higher interface). Anyway, the API is quite
+    high-level as it is,
+
+      $io = Statistics::Covid::Version::IO->new({
+          # the params, the relevant section is
+          # under key 'worldbankdata'
+          'config-hash' => $confighash,
+          'debug' => 1,
+      }) or die "failed to construct";
+    
+      $io->db_connect() or die "failed to connect to db";
+    
+      my $objs = $io->db_select({
+          'conditions' => {
+             #'countryname' => 'Italy',
+             'countrycode' => ['it', 'gr', 'de'],
+             'year' => { '>=' => 1990, '<=' => 2010 }
+           }
+      });
+    
+      print "Population of ".$_->get_column('countryname')." was "
+            .$_->get_column('SP_POP_TOTL')
+            ." in ".$_->get_column('year')
+            ."\n"
+        for @$objs;
+      $io->db_disconnect();
+
+    Or get the latest data for each of these countries using this special
+    select, see DBIx::Class::ResultSet#+select,
+
+      my $WBio = Statistics::Covid::WorldbankData::IO->new({
+          # the params, the relevant section is
+          # under key 'Worldbankdata'
+          'config-hash' => $confighash,
+          'debug' => 1,
+      }) or die "failed to construct";
+      $WBio->db_connect() or die "failed to connect to db (while on world bank)";
+      my $WBobjs = $WBio->db_select({
+            'conditions' => {
+                    countryname=>['Angola', 'Afghanistan'],
+            },
+            # see L<DBIx::Class::ResultSet#+select>
+            'attributes' => {
+                    'group_by' => ['countrycode'],
+                    '+select' => {'max' => 'year'},
+            },
+      });
+      print pp($_->toHashtable()) for @$WBobjs;
+
+    See Statistics::Covid::WorldbankData::Builder and
+    Statistics::Covid::IO::Base for more information.
+
+ Plotting data
+
+    A simple, if not naive plotting functionality exists in-built. In the
+    back of the author's mind there was the requirement to have on the save
+    graph multiple plots, possibly over time, with the same vertical and
+    horizontal axes.
+
+    The first part is to select data from the database. Then the selected
+    array of Statistics::Covid::Datum objects (remember that each holds
+    data for a single point in space and time) is converted to a data-frame
+    which is a convenient way to have the data to be tabulated, e.g. the
+    number of confirmed cases for Spain in one single array. And the
+    corresponding time points in another single array. In this case, admin0
+    is the groupby column name (attribute, field, etc.). The data-frame
+    will contain one key/value pair for each distinct item in the admin0
+    group. In our example, just "Spain". But since data for other countries
+    is more detailed, we will use ['admin0','admin1', 'admin2', 'admin3',
+    'admin4'] as the groupby column names.
+
+        use Statistics::Covid;
+        use Statistics::Covid::Datum;
+        use Statistics::Covid::Utils;
+        use Statistics::Covid::Analysis::Plot::Simple;
+    
+        my $covid = Statistics::Covid->new({
+           # no need to specify providers etc., that's only for fetching
+           'config-file' => 't/config-for-t.json',
+           'debug' => 2,
+        }) or die "Statistics::Covid->new() failed";
+    
+        my $timelineObjs =
+           $covid->select_datums_from_db_time_ascending({
+               'conditions' => {
+                    'datasource' => 'UK::GOVUK2',
+                    'admin3' => 'Hackney',
+                    'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
+            }
+        });
+    
+        # create a dataframe
+        my $df = Statistics::Covid::Utils::datums2dataframe({
+          'datum-objs' => $timelineObjs,
+          # each unique geo-location will be a single group
+          'groupby' => ['admin0','admin1', 'admin2', 'admin3', 'admin4'],
+          # with these data in each group as an array keyed on group name
+          'content' => ['confirmed', 'terminal', 'datetimeUnixEpoch'],
+        }) or die;
+    
+        # plot 'confirmed' vs 'time'
+        $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+            # the dataframe we just created
+            'dataframe' => $df,
+    
+            # saves the plot image to this file:
+            'outfile' => 'confirmed-over-time.png',
+    
+            # plot this column against X
+            # (which is not present and default is
+            # time : 'datetimeUnixEpoch'
+            'Y' => 'confirmed',
+            # this is the default if no 'X'
+            # in Statistics::Covid::Analysis::Plot::Simple
+            # the format is '%d/%m(%Hhr)' (see Chart::Clicker)
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+        });
+
+ Fitting data into a model
+
+    The selected data can be fitted into a user-specified model. A model is
+    just a mathematical equation which we think the particular data
+    generating procedure follows. The procedure in this case is the natural
+    phenomenon of a virus spreading among a population. Often an
+    exponential model is used, and for good reason.
+
+    Such a model is y = c1 * c2 ^ x. Where c1 and c2 are coefficients which
+    we need to find from the data at hand. x is the independent variable,
+    which is time in our case in some reasonable time unit, say hours or
+    12-hour spans. y is the dependent variable, for example the number of
+    confirmed cases. It depends on time (x) and the coefficients. With this
+    equation, for a given time we can predict the number of cases provided
+    that the coefficients are accurate and of course the data model, the
+    exponential equation in our case, is not too simplistic. Finding
+    accurate and correct coefficients requires a lot of data points and
+    depends on the number of coefficients.
+
+    Other models are the polynomials, y = c0 + c1*x + c2*x^2 + ...
+
+    Algorithm::CurveFit is used to find the coefficients for any
+    user-specified equation provided there is sufficient data to do so.
+
+    User-specified equations can be written using the notation as described
+    in Math::Symbolic::Operator, Math::Symbolic, Math::Symbolic::Parser.
+    Usually * denotes multiplication and ^ raising to a power, x must be
+    used for the independent variable and names valid as Perl variables are
+    valid for coefficient names.
+
+    A higher-order polynomial will fit the data better but will take some
+    time. Using an exponential and a polynomial model of degree 4 is
+    probably a sane choice. The polynomial can be used to fit the data from
+    the beginning to the end, where it forms a plateau. The exponential can
+    fit the data at the first stages.
+
+    Why do we need to fit the data to an analytical model? Because if the
+    fit is accurate, we can express all that data we fitted with a handful
+    of parameters. It is a kind of data compression. Once we have good fit,
+    we can compare the various data, how the virus spread in different
+    countries. We can do some clustering to tell us if there are groups of
+    countries with similar patterns. We can correlate with some of World
+    Bank's socio-economic indicators and check the hypothesis that the
+    demolition of Public Health Systems or the decrease in Public spending
+    caused a lot of panic and instigated the foreseeable economic meltdown.
+
+    Again, we will query the database and create a dataframe. But we will
+    "normalise" the dataframe so that time is in hours since the first
+    incident, instead of seconds since the Unix Epoch which is a huge
+    number which blinds the curve fitting algorithm (and the matrix
+    multiplications).
+
+        use Statistics::Covid;
+        use Statistics::Covid::Datum;
+        use Statistics::Covid::Utils;
+        use Statistics::Covid::Analysis::Plot::Simple;
+    
+        my $covid = Statistics::Covid->new({
+           # no need to specify providers etc., that's only for fetching
+           'config-file' => 't/config-for-t.json',
+           'debug' => 2,
+        }) or die "Statistics::Covid->new() failed";
+    
+        my $timelineObjs =
+           $covid->select_datums_from_db_time_ascending({
+               'conditions' => {
+                    'datasource' => 'UK::GOVUK2',
+                    'admin3' => 'Hackney',
+                    'admin0' => 'United Kingdom of Great Britain and Northern Ireland',
+            }
+        });
+    
+        # create a dataframe
+        my $df = Statistics::Covid::Utils::datums2dataframe({
+          'datum-objs' => $timelineObjs,
+          # each unique geo-location will be a single group
+          'groupby' => ['admin0','admin1, 'admin2', 'admin3', 'admin4'],
+          # with these data in each group as an array keyed on group name
+          'content' => ['confirmed', 'terminal', 'datetimeUnixEpoch'],
+        }) or die;
+    
+        #print "Before:\n".pp($df);
+        # discretise time-axis and insert to a new key in the dataframe
+        for(sort keys %$df){
+            my @copy = @{$df->{$_}->{'datetimeUnixEpoch'}->{'data'}};
+            Statistics::Covid::Utils::discretise_increasing_sequence_of_seconds(
+                    \@copy, # << in-place modification
+                    3600, # unit in seconds: 3600 seconds -> 1 hour discrete steps
+                    0 # optional offset, (the 0 hour above)
+            );
+            # new key:
+            $df->{$_}->{'datetimeHoursSinceOldest'} = {'data' => \@copy};
+        }
+        #print "After:\n".pp($df);
+    
+        # fit to a polynomial of degree 3 (max power of x is 3)
+        $ret = Statistics::Covid::Analysis::Model::Simple::fit({
+            'dataframe' => $df,
+            'X' => 'datetimeHoursSinceOldest', # our X is this field from the dataframe
+            'Y' => 'confirmed', # our Y is this field
+            # initial values guess (here ONLY for some coefficients)
+            'initial-guess' => {'c1'=>1, 'c2'=>1},
+            'polynomial-fit' => 3, # max power of x is 3
+            'fit-params' => {
+                    'maximum_iterations' => 100000
+            }
+        });
+    
+        # fit to an ad-hoc formula in 'x' - it is meaningless
+        # (see L<Math::Symbolic::Operator> for supported operators)
+        $ret = Statistics::Covid::Analysis::Model::Simple::fit({
+            'dataframe' => $df,
+            'X' => 'datetimeHoursSinceOldest', # our X is this field from the dataframe
+            'Y' => 'confirmed', # our Y is this field
+            # initial values guess (here ONLY for some coefficients)
+            'initial-guess' => {'c1'=>1, 'c2'=>1},
+            'formula' => 'c1*sin(x) + c2*cos(x)',
+            'fit-params' => {
+                    'maximum_iterations' => 100000
+            }
+        });
+    
+        # do an exponential fit
+        $ret = Statistics::Covid::Analysis::Model::Simple::fit({
+            'dataframe' => $df,
+            'X' => 'datetimeHoursSinceOldest', # our X is this field from the dataframe
+            'Y' => 'confirmed', # our Y is this field
+            'initial-guess' => {'c1'=>1, 'c2'=>1}, # initial values guess
+            'exponential-fit' => 1,
+            'fit-params' => {
+                    'maximum_iterations' => 100000
+            }
+        });
+        print "Here are models, one for each group:\n".pp($ret);
+    
+        # evaluate the model at every time point
+        # we have a model for each group of data (remember groupby)
+        # e.g. for Spain
+        my $aY = 'confirmed'; # this is what we fitted against, our Y
+        for $k (keys %$ret){
+            # k is like 'Spain'
+            $model = $ret->{$k};
+            my @outv;
+            $actualdata = $df->{$k}->{$aY}->{'data'};
+            $timepoints = $df->{$k}->{'datetimeHoursSinceOldest'}->{'data'};
+            $N = scalar @$timepoints;
+            for($i=0;$i<$N;$i++){
+               $t = $timepoints->[$i];
+               $actualv = $actualdata->[$i];
+               $v = $model->evaluate($t); # << evaluates the equation at $t
+               push @outv, $v;
+            }
+            $df->{$k}->{$aY}->{'fitted-exponential'} = \@outv;
+        }
+    
+        # plot 'confirmed' vs 'time' AND the fitted data without
+        # further complications, the plotted looks for 'fitted-*'
+        # entries in the dataframe
+        $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+            'dataframe' => $df,
+            'outfile' => 'confirmed-over-time.png',
+            'Y' => 'confirmed',
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+        });
+
+    Here we will do as above but normalise the confirmed cases to the
+    population size (at the admin0 level, e.g. country).
+
+        use Statistics::Covid;
+        use Statistics::Covid::Datum;
+        use Statistics::Covid::Utils;
+        use Statistics::Covid::Analysis::Plot::Simple;
+        use Statistics::Covid::WorldbankData::IO;
+        use Statistics::Covid::WorldbankData;
+    
+        my $covid = Statistics::Covid->new({
+           # no need to specify providers etc., that's only for fetching
+           'config-file' => 't/config-for-t.json',
+           'debug' => 2,
+        }) or die "Statistics::Covid->new() failed";
+    
+        my $timelineObjs =
+           $covid->select_datums_from_db_time_ascending({
+               'conditions' => {
+                    'admin0' => ['Spain', 'Italy', 'Belgium'],
+            }
+        });
+    
+        # create a dataframe
+        my $df = Statistics::Covid::Utils::datums2dataframe({
+          'datum-objs' => $timelineObjs,
+          # each unique geo-location will be a single group
+          'groupby' => ['admin0'],
+          # with these data in each group as an array keyed on group name
+          'content' => ['confirmed', 'recovered', 'terminal', 'datetimeUnixEpoch'],
+        }) or die;
+    
+        # discretise time-axis and insert to a new key in the dataframe
+        for(sort keys %$df){
+            my @copy = @{$df->{$_}->{'datetimeUnixEpoch'}->{'data'}};
+            Statistics::Covid::Utils::discretise_increasing_sequence_of_seconds(
+                    \@copy, # << in-place modification
+                    3600, # unit in seconds: 3600 seconds -> 1 hour discrete steps
+                    0 # optional offset, (the 0 hour above)
+            );
+            # new key:
+            $df->{$_}->{'datetimeHoursSinceOldest'} = {'data' => \@copy};
+        }
+        #print "After:\n".pp($df);
+    
+        # normalise confirmed cases over total population
+        # from the World Bank indicators
+        $WBio = Statistics::Covid::WorldbankData::IO->new({
+            # the params, the relevant section is
+            # under key 'worldbankdata'
+            'config-hash' => $confighash,
+            'debug' => 0,
+        }) or die "failed to construct";
+        $WBio->db_connect() or die "failed to connect to db (while on world bank)";
+        $WBobjs = $WBio->db_select({
+             'conditions' => {
+                    countryname=>['Spain', 'Italy', 'Belgium'],
+                    year=>2018, # for last years some are not defined yet
+             },
+        });
+        print pp($WBobjs)."\n";
+    
+        my %indicators;
+        # population size
+        $indicators{'pop'} = { map { $_->get_column('countryname') => $_->get_column('SP_POP_TOTL') } @$WBobjs };
+        # GDP (current US$)
+        $indicators{'gdp'} = { map { $_->get_column('countryname') => $_->get_column('NY_GDP_MKTP_CD') } @$WBobjs };
+        # Current health expenditure (% of GDP)
+        $indicators{'health_exp'} = { map { $_->get_column('countryname') => $_->get_column('SH_XPD_CHEX_GD_ZS') } @$WBobjs };
+        # Hospital beds (per 1,000 people)
+        $indicators{'hospital_beds'} = { map { $_->get_column('countryname') => $_->get_column('SH_MED_BEDS_ZS') } @$WBobjs };
+        # Death rate, crude (per 1,000 people)
+        $indicators{'death_rate'} = { map { $_->get_column('countryname') => $_->get_column('SP_DYN_CDRT_IN') } @$WBobjs };
+    
+        # normalise all markers (confirmed, unconfirmed etc) to the population size
+        # that's in-place for the data frame
+        for my $admin0 (sort keys %$df){
+            for my $aY (sort keys %{$df->{$admin0}}){
+                for my $anIndicator (sort keys %indicators){
+                    my @vals = @{$df->{$admin0}->{$aY}->{'data'}};
+                    $_ /= $indicators{$anIndicator}->{$admin0} for @vals;
+                    # add a new entry to the dataframe
+                    $df->{$admin0}->{$aY."-over-$anIndicator"} = {
+                            'data' => \@vals
+                    };
+                }
+            }
+        }
+    
+        # fit to a polynomial of degree 3 (max power of x is 3)
+        $ret = Statistics::Covid::Analysis::Model::Simple::fit({
+            'dataframe' => $df,
+            'X' => 'datetimeHoursSinceOldest', # our X is this field from the dataframe
+            'Y' => 'confirmed', # our Y is this field
+            # initial values guess (here ONLY for some coefficients)
+            'initial-guess' => {'c1'=>1, 'c2'=>1},
+            'polynomial-fit' => 3, # max power of x is 3
+            'fit-params' => {
+                    'maximum_iterations' => 100000
+            }
+        });
+    
+        # do an exponential fit
+        $ret = Statistics::Covid::Analysis::Model::Simple::fit({
+            'dataframe' => $df,
+            'X' => 'datetimeHoursSinceOldest', # our X is this field from the dataframe
+            'Y' => 'confirmed', # our Y is this field
+            'initial-guess' => {'c1'=>1, 'c2'=>1}, # initial values guess
+            'exponential-fit' => 1,
+            'fit-params' => {
+                    'maximum_iterations' => 100000
+            }
+        });
+        print "Here are models, one for each group:\n".pp($ret);
+    
+        # evaluate the model at every time point
+        # we have a model for each group of data (remember groupby)
+        # e.g. for Spain
+        my $aY = 'confirmed'; # this is what we fitted against, our Y
+        for $k (keys %$ret){
+            # k is like 'Spain'
+            $model = $ret->{$k};
+            my @outv;
+            $actualdata = $df->{$k}->{$aY}->{'data'};
+            $timepoints = $df->{$k}->{'datetimeHoursSinceOldest'}->{'data'};
+            $N = scalar @$timepoints;
+            for($i=0;$i<$N;$i++){
+               $t = $timepoints->[$i];
+               $actualv = $actualdata->[$i];
+               $v = $model->evaluate($t); # << evaluates the equation at $t
+               push @outv, $v;
+            }
+            $df->{$k}->{$aY}->{'fitted-exponential'} = \@outv;
+        }
+    
+        # plot 'confirmed' vs 'time'
+        $aY = 'confirmed';
+        $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+            'dataframe' => $df,
+            'outfile' => $aY.'-over-time.png',
+            'Y' => $aY,
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+        });
+    
+        # plot 'terminal' vs 'time'
+        $aY = 'confirmed';
+        $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
+            'dataframe' => $df,
+            'outfile' => $aY.'-over-time.png',
+            'Y' => $aY,
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+        });
+    
+        for my $anIndicator (sort keys %indicators){
+            $aY = 'confirmed-over-'.$anIndicator;
             # plot 'confirmed' vs 'time'
             $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
-                    # the dataframe we just created
-                    'dataframe' => $df,
+            'dataframe' => $df,
+            'outfile' => $aY.'-over-time.png',
+            'Y' => $aY,
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+            }) or die;
     
-                    # saves the plot image to this file:
-                    'outfile' => 'confirmed-over-time.png',
-    
-                    # plot this column against X
-                    # (which is not present and default is
-                    # time : 'datetimeUnixEpoch'
-                    'Y' => 'confirmed',
-                    # if X is not present it is assumed to be this:
-                    #'X' => 'datetimeUnixEpoch',
-            });
-    
-            # plot confirmed vs unconfirmed
-            # if you see in your plot just a vertical line
-            # it means that your data has no 'unconfirmed' variation
-            # most likely all 'unconfirmed' are zero because
-            # the data provider does not provide these values.
+            # plot 'terminal' vs 'time'
             $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
-                    'dataframe' => $df,
-                    'outfile' => 'confirmed-vs-unconfirmed.png',
-                    # the role of X is now this, not time as above
-                    'X' => 'unconfirmed',
-                    # plot this column with X
-                    'Y' => 'confirmed',
-            });
-    
-            # plot using an array of datum objects as they came
-            # out of the DB.
-            # For convenience, a dataframe is created internally, in  plot(),
-            # This is not recommended if you are going to make several
-            # plots because equally many dataframes must be created and destroyed
-            # internally instead of recycling them like we do above  ...
-            $ret = Statistics::Covid::Analysis::Plot::Simple::plot({
-                    # datum objs instead of a dataframe, you need to
-                    # define some parameters for the creation of
-                    # the dataframe, e.g. 'GroupBy'
-                    'datum-objs' => $objs,
-                    # see the datums2dataframe() example above for explanation:
-                    'GroupBy' => ['admin0', 'admin1'],
-    
-                    'outfile' => 'confirmed-over-time.png',
-                    # use this column as Y
-                    'Y' => 'confirmed',
-                    # X is not present so default is time ('datetimeUnixEpoch')
-                    # here we specify how to format the X (time) values,
-                    # i.e. seconds since the Unix epoch.
-                    # print them only as Months (numbers): %m
-                    # see Chart::Clicker::Axis::DateTime for all the options
-                    # if not present a default format for time will be supplied.
-                    'date-format-x' => {
-                            format => '%m', ##<<< specify timeformat for X axis, only months
-                            position => 'bottom',
-                            orientation => 'horizontal'
-                    },
-            });
-    
-            #####
-            # Fit a model to data
-            # i.e. find the parameters of a user-specified
-            # equation which can fit on all the data points
-            # with the least error.
-            # An exponential model is often used in the spread of a virus:
-            # c1 * c2^x (c1 and c2 are the coefficients to be found / fitted)
-            # 'x' is the independent variable and usually denotes time
-            # in L<Statistics::Covid::Datum> is the 'datetimeUnixEpoch' field
-            #####
-    
-            use Statistics::Covid;
-            use Statistics::Covid::Datum;
-            use Statistics::Covid::Utils;
-            use Statistics::Covid::Analysis::Model::Simple;
-    
-            # create a dataframe, as before, from some select()'ed
-            # L<Statistics::Covid::Datum> objects from DB or provider.
-            my $df = Statistics::Covid::Utils::datums2dataframe({
-                    'datum-objs' => $objs,
-                    'groupby' => ['name'],
-                    'content' => ['confirmed', 'datetimeUnixEpoch'],
-            });
-            # we have a problem because seconds since the Unix epoch
-            # is a huge number and the fitter algorithm does not like it.
-            # actually exponential functions in a discrete computer don't like it.
-            # So push their oldest datapoint to 0 (hours) and all
-            # later datapoints to be relative to that.
-            # This does not affect data in DB or even in the array of
-            # datum objects. This affects the dataframe created above only
-            for(sort keys %$df){
-                    Statistics::Covid::Utils::discretise_increasing_sequence_of_seconds(
-                            $df->{$_}->{'datetimeUnixEpoch'}, # << in-place modification
-                            3600, # seconds -> hours
-                            0 # optional offset, (the 0 hour above)
-                    )
-            }
-    
-            # do an exponential fit
-            my $ret = Statistics::Covid::Analysis::Model::Simple::fit({
-                    'dataframe' => $df,
-                    'X' => 'datetimeUnixEpoch', # our X is this field from the dataframe
-                    'Y' => 'confirmed', # our Y is this field
-                    'initial-guess' => {'c1'=>1, 'c2'=>1}, # initial values guess
-                    'exponential-fit' => 1,
-                    'fit-params' => {
-                            'maximum_iterations' => 100000
-                    }
-            });
-    
-            # fit to a polynomial of degree 10 (max power of x is 10)
-            my $ret = Statistics::Covid::Analysis::Model::Simple::fit({
-                    'dataframe' => $df,
-                    'X' => 'datetimeUnixEpoch', # our X is this field from the dataframe
-                    'Y' => 'confirmed', # our Y is this field
-                    # initial values guess (here ONLY for some coefficients)
-                    'initial-guess' => {'c1'=>1, 'c2'=>1},
-                    'polynomial-fit' => 10, # max power of x is 10
-                    'fit-params' => {
-                            'maximum_iterations' => 100000
-                    }
-            });
-    
-            # fit to an ad-hoc formula in 'x'
-            # (see L<Math::Symbolic::Operator> for supported operators)
-            my $ret = Statistics::Covid::Analysis::Model::Simple::fit({
-                    'dataframe' => $df,
-                    'X' => 'datetimeUnixEpoch', # our X is this field from the dataframe
-                    'Y' => 'confirmed', # our Y is this field
-                    # initial values guess (here ONLY for some coefficients)
-                    'initial-guess' => {'c1'=>1, 'c2'=>1},
-                    'formula' => 'c1*sin(x) + c2*cos(x)',
-                    'fit-params' => {
-                            'maximum_iterations' => 100000
-                    }
-            });
-    
-            # this is what fit() returns
-    
-            # $ret is a hashref where key=group-name, and
-            # value=[ 3.4,  # <<<< mean squared error of the fit
-            #  [
-            #     ['c1', 0.123, 0.0005], # <<< coefficient c1=0.123, accuracy 0.00005 (ignore that)
-            #     ['c2', 1.444, 0.0005]  # <<< coefficient c1=1.444
-            #  ]
-            # and group-name in our example refers to each of the locations selected from DB
-            # in this case data from 'Halton' in 'UK' was fitted on 0.123*1.444^time with an m.s.e=3.4
-    
-            # This is what the dataframe looks like:
-            #  {
-            #  Halton   => {
-            #               confirmed => [0, 0, 3, 4, 4, 5, 7, 7, 7, 8, 8, 8],
-            #               datetimeUnixEpoch => [
-            #                 1584262800,
-            #                 1584349200,
-            #                 1584435600,
-            #                 1584522000,
-            #                 1584637200,
-            #                 1584694800,
-            #                 1584781200,
-            #                 1584867600,
-            #                 1584954000,
-            #                 1585040400,
-            #                 1585126800,
-            #                 1585213200,
-            #               ],
-            #             },
-            #  Havering => {
-            #               confirmed => [5, 5, 7, 7, 14, 19, 30, 35, 39, 44, 47, 70],
-            #               datetimeUnixEpoch => [
-            #                 1584262800,
-            #                 1584349200,
-            #                 1584435600,
-            #                 1584522000,
-            #                 1584637200,
-            #                 1584694800,
-            #                 1584781200,
-            #                 1584867600,
-            #                 1584954000,
-            #                 1585040400,
-            #                 1585126800,
-            #                 1585213200,
-            #               ],
-            #             },
-            #  }
-    
-            # and after converting the datetimeUnixEpoch values to hours and setting the oldest to t=0
-            #  {
-            #  Halton   => {
-            #                confirmed => [0, 0, 3, 4, 4, 5, 7, 7, 7, 8, 8, 8],
-            #                datetimeUnixEpoch => [0, 24, 48, 72, 104, 120, 144, 168, 192, 216, 240, 264],
-            #              },
-            #  Havering => {
-            #                confirmed => [5, 5, 7, 7, 14, 19, 30, 35, 39, 44, 47, 70],
-            #                datetimeUnixEpoch => [0, 24, 48, 72, 104, 120, 144, 168, 192, 216, 240, 264],
-            #              },
-            #  }
+            'dataframe' => $df,
+            'outfile' => $aY.'-over-time.png',
+            'Y' => $aY,
+            'X' => 'datetimeUnixEpoch', # secs since THE epoch
+            }) or die;
+        }
 
 EXAMPLE SCRIPTS
+
+        datasets-worldbank-fetch-data-and-store.pl \
+           --config-file config/config.json \
+          --no-overwrite \
+          --debug 1
+    
+        statistics-covid-plot-data-and-fit-model.pl \
+          --config-file config/config.json \
+          --outdir xx \
+          --fit-model exponential \
+          --fit-model polynomial=4 \
+          --group-by 'admin0' \
+          --search-conditions '{admin0=>["Spain", "Italy", "Belgium"]}'
+    
+        statistics-covid-plot-data-and-fit-model.pl \
+          --config-file config/config.json \
+          --outdir xx \
+          --fit-model exponential \
+          --fit-model polynomial=4 \
+          --group-by 'admin0' \
+          --group-by 'admin3' \
+          --search-conditions \
+           '{admin0=>"United Kingdom of Great Britain and Northern Ireland",datasource=>"UK::GOVUK2",admin3=>["Hackney", "Tower Hamlets", "Kensington and Chelsea"]}'
 
     script/statistics-covid-fetch-data-and-store.pl is a script which
     accompanies this distribution. It can be used to fetch any data from
@@ -425,24 +868,20 @@ EXAMPLE SCRIPTS
 
     For a quick start:
 
-        # copy an example config file to your local dir
-        # from the test dir of the distribution, do not modify
-        # t/config-for-t.json as tests may fail afterwards.
-        cp t/config-for-t.json config.json
-    
-        # optionally modify config.json to change the destination data dirs
-        # for example you can have undef "fileparams"
-        # "datafiles-dir": "data/files",
-        # and under "dbparams" (if you deal with SQLite)
-        # "dbdir" : "t/t-data/db", 
-        # now fetch data from some default data providers,
-        # fetched data files will be placed in data/files/<PROVIDERDIR> (timestamped)
-        # and a database will be created. If you are dealing with SQLite
-        # the database will be at
-        #     t/t-data/db/covid19.sqlite
-        script/statistics-covid-fetch-data-and-store.pl \
-            --config-file config.json
-    
+    copy an example config file to your local dir from the test dir of the
+    distribution, do not modify t/config-for-t.json as tests may fail
+    afterwards. cp t/config-for-t.json config.json
+
+    optionally modify config.json to change the destination data dirs for
+    example you can have undef "fileparams" "datafiles-dir": "data/files",
+    # and under "dbparams" (if you deal with SQLite) # "dbdir" :
+    "t/t-data/db", # now fetch data from some default data providers, #
+    fetched data files will be placed in data/files/<PROVIDERDIR>
+    (timestamped) # and a database will be created. If you are dealing with
+    SQLite # the database will be at # t/t-data/db/covid19.sqlite
+    script/statistics-covid-fetch-data-and-store.pl \ --config-file
+    config.json
+
         # if you do not want to save the fetched data into local files
         # but only in db:
         script/statistics-covid-fetch-data-and-store.pl \
@@ -494,55 +933,6 @@ EXAMPLE SCRIPTS
 
     When the database is up-to-date, analysis of data is the next step:
     plotting, fitting to analytical models, prediction, comparison.
-
-CONFIGURATION FILE
-
-    Below is an example configuration file which is essentially JSON with
-    comments. It can be found in t/config-for-t.json relative to the root
-    directory of this distribution.
-
-            # comments are allowed, otherwise it is json
-            # this file does not get eval'ed, it is parsed
-            # only double quotes! and no excess commas
-            {
-                    # fileparams options
-                    "fileparams" : {
-                            # dir to store datafiles, each DataProvider class
-                            # then has its own path to append
-                            "datafiles-dir" : "datazz/files"
-                    },
-                    # database IO options
-                    "dbparams" : {
-                            # which DB to use: SQLite, MySQL (case sensitive)
-                            "dbtype" : "SQLite",
-                            # the name of DB
-                            # in the case of SQLite, this is a filepath
-                            # all non-existing dirs will be created (by module, not by DBI)
-                            "dbdir" : "datazz/db",
-                            "dbname" : "covid19.sqlite",
-                            # how to handle duplicates in DB? (duplicate=have same PrimaryKey)
-                            # only-better : replace records in DB if outdated (meaning number of markers is less, e.g. terminal or confirmed)
-                            # replace     : force replace irrespective of markers
-                            # ignore      : if there is a duplicate in DB DONT REPLACE/DONT INSERT
-                            # (see also Statistics::Covid::Datum for up-to-date info)
-                            "replace-existing-db-record" : "only-better",
-                            # username and password if needed
-                            # unfortunately this is in plain text
-                            # BE WARNED: do not store your main DB password here!!!!
-                            # perhaps create a new user or use SQLite
-                            # there is no need for these when using SQLite
-                            "hostname" : "", # must be a string (MySQL-related)
-                            "port"     : "", # must be a string (MySQL-related)
-                            "username" : "", # must be a string
-                            "password" : "", # must be a string
-                            # options to pass to DBI::connect
-                            # see https://metacpan.org/pod/DBI for all options
-                            "dbi-connect-params" : {
-                                    "RaiseError" : 1, # die on error
-                                    "PrintError" : 0  # do not print errors or warnings
-                            }
-                    }
-            }
 
 DATABASE SUPPORT
 
@@ -701,7 +1091,12 @@ POD ERRORS
     Hey! The above document had some coding errors, which are explained
     below:
 
-    Around line 50:
+    Around line 27:
+
+      alternative text 'https://www.worldbank.org/ ' contains non-escaped |
+      or /
+
+    Around line 341:
 
       alternative text 'https://www.worldbank.org/ ' contains non-escaped |
       or /

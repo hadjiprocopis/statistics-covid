@@ -18,7 +18,7 @@ use File::Path;
 
 use Data::Dump qw/pp/;
 
-my $delete_out_files = 0;
+my $delete_out_files = 1;
 my $DEBUG = 0;
 
 ### nothing to change below
@@ -58,6 +58,7 @@ $plotparams->{'debug'} = $DEBUG;
 # get datum objs for specific location sorted wrt time
 my $objs = $covid->select_datums_from_db_time_ascending({
 	'conditions' => {
+		'datasource' => 'UK::GOVUK2',
 		'admin3' => {'like' => 'Hack%'},
 		#or {'like' => 'Haver%'},
 		'admin0' => 'United Kingdom of Great Britain and Northern Ireland'
